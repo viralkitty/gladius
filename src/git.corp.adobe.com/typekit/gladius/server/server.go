@@ -16,12 +16,17 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
-	"git.corp.adobe.com/typekit/gladius/build"
+	"github.com/garyburd/redigo/redis"
 	"github.com/gorilla/mux"
+	
+	"git.corp.adobe.com/typekit/gladius/build"
 )
 
-var builds = build.NewBuildManager()
+var conn, err = redis.DialTimeout("tcp", ":6379", 0, 1*time.Second, 1*time.Second)
+
+var builds = build.NewBuildManager(conn)
 
 const PathPrefix = "/build/"
 
@@ -71,7 +76,7 @@ func errorHandler(f func(w http.ResponseWriter, r *http.Request) error) http.Han
 //          {"ID": 2, "Title": "Buy bread", "Done": true}
 //        ]}
 func ListBuilds(w http.ResponseWriter, r *http.Request) error {
-	res := struct{ Builds []*build.Build }{builds.All()}
+	res := struct{ Builds []*build.Build }{ builds.All() }
 	return json.NewEncoder(w).Encode(res)
 }
 

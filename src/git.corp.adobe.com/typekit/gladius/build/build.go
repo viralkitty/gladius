@@ -3,17 +3,20 @@ package build
 import (
 	"errors"
 	"fmt"
-	"time"
+	// "time"
 	
 	"github.com/garyburd/redigo/redis"
 )
+
+type Builds struct {
+	builds []*Build
+}
 
 type Build struct {
 	Sha string
 }
 
 type BuildManager struct {
-  builds []*Build
   conn redis.Conn
 }
 
@@ -29,14 +32,35 @@ func NewBuild(sha string) (*Build, error) {
 	}
 }
 
-func (m *BuildManager) All() []*Build {
-	return m.builds
+func BuildFromRawData(sha string) {
+	
+}
+
+func (m *BuildManager) All() []*Build {	
+	values, err := redis.Values(m.conn.Do("SMEMBERS", "pending-builds"))
+	
+	if err != nil {
+		fmt.Printf("Error occurred: %#v", err)
+	}
+	
+	builds := &Builds{}
+	
+	values, err = redis.Scan(values, builds)
+
+	if err != nil {
+		fmt.Printf("Error occurred: %#v", err)
+	}
+	
+	fmt.Printf("TEST: %s", values[0])
+	
+	a, _ := NewBuild("xyz")
+	b, _ := NewBuild("abc")
+
+	return []*Build{a,b}
 }
 
 func (m *BuildManager) Save(build *Build) bool {
-	conn, err := redis.DialTimeout("tcp", ":6379", 0, 1*time.Second, 1*time.Second)
-	
-	_, err = conn.Do("SADD", "pending-builds", fmt.Sprintf("build-%s", build.Sha))
+	_, err := m.conn.Do("SADD", "pending-builds", fmt.Sprintf("build-%s", build.Sha))
 	
 	if err != nil {
 		return false

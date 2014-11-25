@@ -8,9 +8,9 @@ import (
 	"github.com/garyburd/redigo/redis"
 )
 
-func redisCleanup() {
-	conn, _ := redis.DialTimeout("tcp", ":6379", 0, 1*time.Second, 1*time.Second)
-	
+var conn, _ = redis.DialTimeout("tcp", ":6379", 0, 1*time.Second, 1*time.Second)
+
+func redisCleanup(conn redis.Conn) {	
 	conn.Do("DEL", "pending-builds")
 }
 
@@ -72,52 +72,34 @@ func TestSaveBuild(t *testing.T) {
 
 	defer conn.Close()
 	
-	defer redisCleanup()
+	defer redisCleanup(conn)\n\n
 }
 
 func TestAll(t *testing.T) {
 	buildA, _ := NewBuild("SHA_A")
 	buildB, _ := NewBuild("SHA_B")
 	
-	conn, err := redis.DialTimeout("tcp", ":6379", 0, 1*time.Second, 1*time.Second)
-	
-	if err != nil {
-		t.Errorf("unexpected error occurred %#v", err)
-	}
-	
 	bm := NewBuildManager(conn)
 	
-	is_saved := bm.Save(buildA)
-	
+	is_saved := bm.Save(buildA)	
 	if is_saved == false {
-		t.Errorf("The build was not saved %#v", err)
+		t.Errorf("The build was not saved %#v", buildA)
 	}
 	
 	is_saved = bm.Save(buildB)
-	
 	if is_saved == false {
-		t.Errorf("The build was not saved %#v", err)
+		t.Errorf("The build was not saved %#v", buildB)
 	}
 	
-	reply, err := redis.Values(conn.Do("SMEMBERS", "pending-builds"))
+	allBuilds := bm.All()
 	
-	if fmt.Sprintf("%s", reply[0]) != "build-SHA_A" {
-		t.Errorf("Expected SHA_A, got %#s", fmt.Sprintf("%s", reply[0]))
+	if len(allBuilds) != 2 {
+		t.Errorf("error occurred, expected [buildA, buildB], got %#v", allBuilds)
 	}
 	
-	if fmt.Sprintf("%s", reply[1]) != "build-SHA_B" {
-		t.Errorf("Expected SHA_A, got %#s", fmt.Sprintf("%s", reply[0]))
+	if allBuilds[0].Sha != "build-SHA_A" {
+		t.Errorf("expected buildA, got %#v", allBuilds[0])
 	}
-	
-	if err != nil {
-		t.Errorf("Could not retrieve the build %#v", err)
-	}
-	
-	if reply == nil {
-		t.Errorf("expected reply to be set, got %#v", reply)
-	}
-
-	defer conn.Close()
-	
-	defer redisCleanup()
+		
+	defer redisCleanup(conn)
 }
