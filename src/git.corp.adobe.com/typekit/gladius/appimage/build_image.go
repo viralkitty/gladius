@@ -30,7 +30,7 @@ func NewBuild(buildId string) {
     }
 	
 	buildImage := &BuildImage{client: client, buildId: buildId}
-	buildImage.PullImageDeps()
+	//buildImage.PullImageDeps()
 	buildImage.CreateDataVolume()
 	buildImage.PullSha()
 }
@@ -86,13 +86,13 @@ func (b BuildImage) CreateDataVolume() {
 	})
 	
     if err != nil {
-        log.Fatal(err)
+        log.Fatal("Could not create data volume %v", err)
     }
 	
 	err = b.client.StartContainer(container.ID, &docker.HostConfig{})
 
     if err != nil {
-        log.Fatal(err)
+        log.Fatal("Could start data volume %v", err)
     }
 }
 
@@ -100,26 +100,23 @@ func (b BuildImage) PullSha() {
 	container, err := b.client.CreateContainer(docker.CreateContainerOptions{
 		Name: fmt.Sprintf("typekit-%s", b.UUID()),
 		Config: &docker.Config{
-			Image:       "docker.corp.adobe.com/typekit/bundler-typekit",
-			Cmd:         []string{"git", "clone", "git@git.corp.adobe.com:typekit/typekit.git", "--depth", "1", "--branch", b.buildId, "."},
-			// Cmd: []string{"bash"},
-			Volumes: 	 map[string]struct{}{
-				"/typekit": {}, 
-			},
-			AttachStdin: true,
+			Image:       "docker.corp.adobe.com/typekit/bundler-typekit-ssh",
+			WorkingDir:  "/typekit",			
+			Cmd:         []string{"git", "clone", "git@git.corp.adobe.com:typekit/typekit.git", "--depth", "1", "--branch", b.buildId, "typekit"},
+			// Cmd: 		 []string{"bash"},
 			Tty:         true,
 		},
 	})
 	
     if err != nil {
-        log.Fatal(err)
+        log.Fatal("Could not create a container to pull the SHA%v", err)
     }
 	
 	err = b.client.StartContainer(container.ID, &docker.HostConfig{
-		Binds: []string{"/root/.ssh/id_rsa:/root/.ssh/id_rsa"},
+		VolumesFrom: []string{"typekit"},
 	})
 
     if err != nil {
-        log.Fatal(err)
+        log.Fatal("Could not start a git pull container %v", err)
     }
 }
