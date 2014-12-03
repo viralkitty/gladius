@@ -1,3 +1,12 @@
 # Gladius
 
-> ![](http://upload.wikimedia.org/wikipedia/commons/7/71/Uncrossed_gladius.jpg)
+> A Mesos framework with an HTTP API for running tests across a cluster.
+
+## Running Gladius
+
+Gladius can be run with [Docker].
+
+```bash
+```
+
+[Docker]: https://docker.com
