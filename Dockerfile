@@ -1,6 +1,7 @@
 FROM golang:1.3
 
 ENV GLADIUS_HTTP_PORT 8080
+ENV DOCKER_SOCK_PATH unix:///var/run/docker.sock
 
 EXPOSE 8080
 
