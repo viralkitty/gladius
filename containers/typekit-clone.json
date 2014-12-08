@@ -1,0 +1,15 @@
+{
+	"Config": {
+		"Tty": true,
+		"AttachStdin": true,
+		"AttachStdout": true,
+		"AttachStderr": true,
+		"Image": "busybox",
+		"Entrypoint": ["sh"],
+		"Cmd": ["-c", "bash"],
+		"Volumes": { "/typekit": {} }
+	},
+	"HostConfig": {
+		"VolumesFrom": ["ssh"]
+	}
+}

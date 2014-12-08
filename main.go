@@ -5,14 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
-
-	"git.corp.adobe.com/typekit/gladius/server"
 )
 
 func main() {
-	httpPort := os.Getenv("GLADIUS_HTTP_PORT")
+	listenAt := fmt.Sprintf(":%s", os.Getenv("GLADIUS_HTTP_PORT"))
 
-	log.Printf("Listening on port %s", httpPort)
+	log.Printf("Listening at %s", listenAt)
 
-	http.ListenAndServe(fmt.Sprintf(":%s", httpPort), nil)
+	http.HandleFunc("/builds", Builds)
+	http.ListenAndServe(listenAt, nil)
 }
