@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 )
 
 type Build struct {
@@ -10,15 +11,16 @@ type Build struct {
 }
 
 func (b Build) Create() {
-	b.clone()
+	statusCode := b.clone()
+	log.Printf("Finished %v", statusCode)
 	//b.bundle()
 }
 
-func (b Build) clone() {
+func (b Build) clone() int {
 	opts := ContainerOpts(b.App, "clone")
 
 	opts.Config.Entrypoint = []string{"sh"}
-	opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --branch %s git@git.corp.adobe.com:typekit/%s.git . && bundle && bash", b.Branch, b.App)}
+	opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s git@git.corp.adobe.com:typekit/%s.git . && bundle install --deployment", b.Branch, b.App)}
 
-	NewContainer(opts)
+	return WaitForContainer(NewContainer(opts))
 }
