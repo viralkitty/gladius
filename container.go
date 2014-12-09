@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/fsouza/go-dockerclient"
 )
@@ -59,9 +61,7 @@ func ContainerOpts(app string, name string) docker.CreateContainerOptions {
 func CommitContainerOpts(container string, tag string) docker.CommitContainerOptions {
 	opts := docker.CommitContainerOptions{
 		Container:  container,
-		Repository: "docker.corp.adobe.com/typekit/typekit",
-		Tag:        tag,
-		Message:    "typekit image",
+		Repository: "typekit/typekitapp",
 	}
 
 	return opts
@@ -75,4 +75,39 @@ func CommitContainer(opts docker.CommitContainerOptions) *docker.Image {
 	}
 
 	return img
+}
+
+func TagImage(tag string) {
+	opts := docker.TagImageOptions{
+		Repo:  "docker.corp.adobe.com/typekit/typekitapp",
+		Force: true,
+	}
+
+	err := client.TagImage("typekit/typekitapp", opts)
+
+	if err != nil {
+		log.Fatal("Could not tag the image:", err)
+	}
+}
+
+func PushImage(tag string) {
+	var buf bytes.Buffer
+
+	opts := docker.PushImageOptions{
+		Name:         "docker.corp.adobe.com/typekit/typekitapp",
+		OutputStream: &buf,
+	}
+
+	err := client.PushImage(opts, docker.AuthConfiguration{})
+
+	if err != nil {
+		log.Fatal("Could not push the image: ", err)
+	}
+
+	if strings.Contains(buf.String(), "Image successfully pushed") == true {
+		log.Printf("Found")
+		return
+	}
+
+	log.Fatal("Error occurred while pushing the image")
 }
