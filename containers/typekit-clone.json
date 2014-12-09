@@ -4,9 +4,8 @@
 		"AttachStdin": true,
 		"AttachStdout": true,
 		"AttachStderr": true,
-		"Image": "busybox",
-		"Entrypoint": ["sh"],
-		"Cmd": ["-c", "bash"],
+		"Image": "razic/bundler",
+		"WorkingDir": "/typekit",
 		"Volumes": { "/typekit": {} }
 	},
 	"HostConfig": {
