@@ -9,10 +9,6 @@ import (
 	"github.com/fsouza/go-dockerclient"
 )
 
-type Container struct {
-	container *docker.Container
-}
-
 var client, _ = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
 
 func NewContainer(opts docker.CreateContainerOptions) *docker.Container {
@@ -58,4 +54,25 @@ func ContainerOpts(app string, name string) docker.CreateContainerOptions {
 	}
 
 	return opts
+}
+
+func CommitContainerOpts(container string, tag string) docker.CommitContainerOptions {
+	opts := docker.CommitContainerOptions{
+		Container:  container,
+		Repository: "docker.corp.adobe.com/typekit/typekit",
+		Tag:        tag,
+		Message:    "typekit image",
+	}
+
+	return opts
+}
+
+func CommitContainer(opts docker.CommitContainerOptions) *docker.Image {
+	img, err := client.CommitContainer(opts)
+
+	if err != nil {
+		log.Fatal("Could not commit container:", err)
+	}
+
+	return img
 }
