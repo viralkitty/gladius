@@ -41,3 +41,6 @@ func (b *Build) tagImage() {
 func (b *Build) pushImage() {
 	PushImage(b.Branch)
 }
+
+func (b *Build) runTests() {
+}
