@@ -1,39 +1,51 @@
 FROM ubuntu:14.04
 
+# env vars
 ENV DEBIAN_FRONTEND noninteractive
-
 ENV GLADIUS_HTTP_PORT 8080
 ENV DOCKER_SOCK_PATH unix:///var/run/docker.sock
-
 ENV GOPATH /go
-ENV PATH /go/bin:$PATH
-
-RUN apt-get update && apt-get install -y \
-        ca-certificates curl gcc libc6-dev make \
-        bzr git mercurial \
-        --no-install-recommends
-
 ENV GOLANG_VERSION 1.3.3
+ENV GOLANG_URL https://golang.org/dl/go$GOLANG_VERSION.src.tar.gz
+ENV PATH /usr/src/go/bin:/go/bin:$PATH
+ENV MESOS github.com/mesos/mesos-go
+ENV MESOS_GIT_URL https://$MESOS.git
+ENV MESOS_GO_PATH $GOPATH/src/$MESOS
+ENV GLADIUS git.corp.adobe.com/typekit/gladius
+ENV GLADIUS_GO_PATH $GOPATH/src/$GLADIUS
 
-RUN curl -k -sSL https://golang.org/dl/go$GOLANG_VERSION.src.tar.gz \
-        | tar -v -C /usr/src -xz
-
-RUN cd /usr/src/go/src && ./make.bash --no-clean 2>&1
-
-ENV PATH /usr/src/go/bin:$PATH
-
-ADD . /go/src/git.corp.adobe.com/typekit/gladius/
-
-RUN mkdir -p /go/src/github.com/mesos && \
-    cd /go/src/github.com/mesos && \
-    git clone https://github.com/mesos/mesos-go.git /go/src/github.com/mesos/mesos-go && \
-    cd /go/src/github.com/mesos/mesos-go && \
-    go get github.com/tools/godep && \
-    godep restore && \
-    cd examples && \
-    go build -tags=test-exec -o test-executor test_executor.go
-
-RUN cd /go && go get -d -v ... && go install git.corp.adobe.com/typekit/gladius
-
+# open the port
 EXPOSE 8080
+
+# prerequisites
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gcc \
+    libc6-dev \
+    make \
+    bzr \
+    git \
+    mercurial && \
+    curl -ksSL $GOLANG_URL | tar -v -C /usr/src -xz && \
+    cd /usr/src/go/src && \
+    ./make.bash --no-clean 2>&1 && \
+    git clone $MESOS_GIT_URL $MESOS_GO_PATH && \
+    cd $MESOS_GO_PATH && \
+    go get github.com/tools/godep && \
+    godep restore
+
+# copy gladius
+ADD . /gladius
+
+# install gladius
+RUN cd $MESOS_GO_PATH/examples && \
+    go build -tags=test-exec -o test-executor test_executor.go && \
+    mkdir -p $GLADIUS_GO_PATH && \
+    cp -r /gladius $(dirname $GLADIUS_GO_PATH) && \
+    cd $GOPATH && \
+    go get -d -v ... && \
+    go install $GLADIUS
+
 CMD ["gladius"]
