@@ -6,48 +6,36 @@
 
 Gladius can be run with [Docker]. By default, Gladius runs on port `8080`.
 
-### Create ssh data volume container 
-Keys in it, either using ssh-keygen or copying the keys into it. 
-It's a long living container
+### Start [Mesos]
 
-```base
-docker run -tid --volume /root/.ssh --name ssh ubuntu
-````
- 
-###  Run Gladius server
+Use the link below to set up your [Mesos] cluster locally. You'll need to follow
+all the steps except the Marathon part.
+
+http://viralkitty.com/marathon-and-docker
+
+### Create an SSH Key Container
+
+This container is will be used to authenticate to https://git.corp.adobe.com.
+
 ```bash
 docker run \
-  --rm \
   --tty \
   --interactive \
-  --volume $(which docker):$(which docker) \
-  --volume /var/run/docker.sock:/var/run/docker.sock \
-  --publish 8080:8080 \
-  typekit/gladius
+  --volume /root/.ssh \
+  --name ssh \
+  ubuntu
 ```
 
-### Ways to run Mesos locally
+*Note:* Ensure sure the container has a passwordless RSA key in the
+`/root/.ssh` directory, then add the corresponding public key to your
+https://git.corp.adobe.com account.
+
+###  Run Gladius
+
+From the root of this directory:
 
 ```bash
-docker run \
-  --name mesos \
-  -d \
-  -e MESOS_QUORUM=1 \
-  -e MESOS_LOG_DIR=/var/log \
-  -e MESOS_WORK_DIR=/tmp  \
-  -p 5050:5050 redjack/mesos-master
-```
-
-```bash
-docker run --privileged=true \
-  -t -d --net="host" \
-  -e MESOS_IP=192.168.59.103 \
-  -e MESOS_LOG_DIR=/var/log \
-  -e MESOS_MASTER=192.168.59.103:5050 \
-  -e MESOS_CONTAINERIZERS=docker,mesos \
-  -p 5051:5051 \
-  -v $(which docker):$(which docker) \
-  -v /var/run/docker.sock:/var/run/docker.sock razic/mesos-slave
+./run.sh gladius --master $MESOS_MASTER_HOST:$MESOS_MASTER_PORT --logtostderr
 ```
 
 [Docker]: https://docker.com
