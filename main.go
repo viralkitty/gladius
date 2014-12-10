@@ -9,6 +9,12 @@ import (
 	sched "github.com/mesos/mesos-go/scheduler"
 )
 
+const (
+	FRAMEWORK_NAME  = "Gladius"
+	EXECUTOR_NAME   = "Test"
+	EXECUTOR_SOURCE = "go_test"
+)
+
 var master = flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
 var execUri = flag.String("executor", "./test_executor", "Path to test executor")
 
@@ -21,15 +27,15 @@ func main() {
 	// build command executor
 	exec := &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID("default"),
-		Name:       proto.String("Test Executor (Go)"),
-		Source:     proto.String("go_test"),
+		Name:       proto.String(EXECUTOR_NAME),
+		Source:     proto.String(EXECUTOR_SOURCE),
 		Command:    util.NewCommandInfo(*execUri),
 	}
 
 	// the framework
 	fwinfo := &mesos.FrameworkInfo{
 		User: proto.String(""), // Mesos-go will fill in user.
-		Name: proto.String("Test Framework (Go)"),
+		Name: proto.String(FRAMEWORK_NAME),
 	}
 
 	driver, err := sched.NewMesosSchedulerDriver(
