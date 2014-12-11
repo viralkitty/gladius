@@ -3,10 +3,13 @@ package main
 import (
 	"code.google.com/p/gogoprotobuf/proto"
 	"flag"
+	"fmt"
 	log "github.com/golang/glog"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
+	"net/http"
+	"os"
 )
 
 const (
@@ -48,6 +51,14 @@ func main() {
 	if err != nil {
 		log.Errorln("Unable to create a SchedulerDriver ", err.Error())
 	}
+
+	listenAt := fmt.Sprintf(":%s", os.Getenv("GLADIUS_HTTP_PORT"))
+
+	log.Infoln("Listening at %s", listenAt)
+
+	http.HandleFunc("/builds", Builds)
+
+	go http.ListenAndServe(listenAt, nil)
 
 	if stat, err := driver.Run(); err != nil {
 		log.Infof("Framework stopped with status %s and error: %s\n", stat.String(), err.Error())

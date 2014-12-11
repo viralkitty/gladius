@@ -36,6 +36,8 @@ func WaitForContainer(ctr *docker.Container) int {
 		log.Fatal("Could not wait for the container: ", err)
 	}
 
+	log.Printf("Container exited with status code %+v", statusCode)
+
 	return statusCode
 }
 
@@ -74,6 +76,8 @@ func CommitContainer(opts docker.CommitContainerOptions) *docker.Image {
 		log.Fatal("Could not commit container:", err)
 	}
 
+	log.Printf("Committed container %+v", img)
+
 	return img
 }
 
@@ -88,6 +92,8 @@ func TagImage(tag string) {
 	if err != nil {
 		log.Fatal("Could not tag the image:", err)
 	}
+
+	log.Printf("Tagged image %+v", opts)
 }
 
 func PushImage(tag string) {
@@ -105,7 +111,7 @@ func PushImage(tag string) {
 	}
 
 	if strings.Contains(buf.String(), "Image successfully pushed") == true {
-		log.Printf("Found")
+		log.Printf("Image successfully pushed...")
 		return
 	}
 

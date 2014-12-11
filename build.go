@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/fsouza/go-dockerclient"
+	"log"
 )
 
 type Build struct {
@@ -12,22 +13,32 @@ type Build struct {
 }
 
 func (b *Build) Create() {
-	b.cloneRepo()
+	statusCode := b.cloneRepo()
+
+	if statusCode != 0 {
+		log.Fatal("Error occurred while cloning the repo")
+		return
+	}
+
 	b.commitContainer()
 	b.tagImage()
 	b.pushImage()
 }
 
-func (b *Build) cloneRepo() {
+func (b *Build) cloneRepo() int {
 	opts := ContainerOpts(b.App, "clone")
 
 	opts.Config.Entrypoint = []string{"sh"}
+
+	log.Printf("Starting to clone the repo")
 
 	//opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s git@git.corp.adobe.com:typekit/%s.git . && bundle install --jobs 4 --deployment", b.Branch, b.App)}
 	opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s git@git.corp.adobe.com:typekit/%s.git .", b.Branch, b.App)}
 	b.Container = NewContainer(opts)
 
-	WaitForContainer(b.Container)
+	log.Printf("Waiting...")
+
+	return WaitForContainer(b.Container)
 }
 
 func (b *Build) commitContainer() {
