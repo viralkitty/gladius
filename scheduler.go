@@ -38,9 +38,13 @@ func (sched *Scheduler) Reregistered(driver sched.SchedulerDriver, masterInfo *m
 	log.Infoln("Framework Re-Registered with Master ", masterInfo)
 }
 
-func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {}
+func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {
+	log.Infoln("Disconnected")
+}
 
 func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
+
+	log.Infoln("HELLO WORLD. OFFERING RESOURCES")
 
 	for _, offer := range offers {
 		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
@@ -65,6 +69,7 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 		remainingMems := mems
 
 		var tasks []*mesos.TaskInfo
+
 		for sched.tasksLaunched <= sched.totalTasks &&
 			CPUS_PER_TASK <= remainingCpus &&
 			MEM_PER_TASK <= remainingMems {
@@ -91,6 +96,7 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 			remainingCpus -= CPUS_PER_TASK
 			remainingMems -= MEM_PER_TASK
 		}
+
 		log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
 		driver.LaunchTasks([]*mesos.OfferID{offer.Id}, tasks, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
 	}
@@ -122,6 +128,7 @@ func (sched *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos
 func (sched *Scheduler) OfferRescinded(sched.SchedulerDriver, *mesos.OfferID) {}
 
 func (sched *Scheduler) FrameworkMessage(sched.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, string) {
+	log.Infoln("Framework received message:")
 }
 func (sched *Scheduler) SlaveLost(sched.SchedulerDriver, *mesos.SlaveID) {}
 func (sched *Scheduler) ExecutorLost(sched.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, int) {

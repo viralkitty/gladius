@@ -19,7 +19,7 @@ const (
 )
 
 var master = flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
-var execUri = flag.String("executor", "./test_executor", "Path to test executor")
+var execUri = flag.String("executor", "/gladius/test-executor", "Path to test executor")
 
 func init() {
 	flag.Parse()

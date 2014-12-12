@@ -42,10 +42,14 @@ ADD . /gladius
 # install gladius
 RUN cd $MESOS_GO_PATH/examples && \
     go build -tags=test-exec -o test-executor test_executor.go && \
+    cp test-executor /gladius/test-executor && \
+    ls /gladius && \
     mkdir -p $GLADIUS_GO_PATH && \
     cp -r /gladius $(dirname $GLADIUS_GO_PATH) && \
     cd $GOPATH && \
     go get -d -v ... && \
     go install $GLADIUS
+
+VOLUME /gladius
 
 CMD ["gladius"]
