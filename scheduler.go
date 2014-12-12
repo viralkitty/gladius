@@ -110,7 +110,7 @@ func (sched *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos
 
 	if sched.tasksFinished >= sched.totalTasks {
 		log.Infoln("Total tasks completed, stopping framework.")
-		driver.Stop(false)
+		//		driver.Stop(false)
 	}
 
 	if status.GetState() == mesos.TaskState_TASK_LOST ||
