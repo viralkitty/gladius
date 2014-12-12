@@ -26,6 +26,11 @@ docker run \
   ubuntu
 ```
 
+```
+docker run --name mesos -d --net="host" -e MESOS_QUORUM=1 -e MESOS_LOG_DIR=/var/log -e MESOS_WORK_DIR=/tmp -e MESOS_IP=192.168.59.103 -e MESOS_PORT=5050 -p 5050:5050 redjack/mesos-master
+docker run --privileged=true -t -d --net="host" -e MESOS_IP=192.168.59.103 -e MESOS_LOG_DIR=/var/log -e MESOS_MASTER=192.168.59.103:5050 -e MESOS_CONTAINERIZERS=docker,mesos -p 5051:5051 -v $(which docker):$(which docker) -v /var/run/docker.sock:/var/run/docker.sock --volumes-from $(docker ps | grep gladius:latest | awk '{print $1}') razic/mesos-slave
+```
+
 *Note:* Ensure sure the container has a passwordless RSA key in the
 `/root/.ssh` directory, then add the corresponding public key to your
 https://git.corp.adobe.com account.
