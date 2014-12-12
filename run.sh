@@ -8,4 +8,5 @@ docker build -t typekit/gladius . && \
 	--volume $(which docker):$(which docker) \
 	--volume /var/run/docker.sock:/var/run/docker.sock \
 	--publish 8080:8080 \
+        --net="host" \
 	typekit/gladius "$@"
