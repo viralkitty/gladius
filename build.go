@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/fsouza/go-dockerclient"
-	"log"
+	log "github.com/golang/glog"
 )
 
 type Build struct {
@@ -12,31 +12,30 @@ type Build struct {
 	Container *docker.Container
 }
 
-func (b *Build) Create() {
+func (b *Build) Create(builds chan *Build) {
 	statusCode := b.cloneRepo()
 
 	if statusCode != 0 {
-		log.Fatal("Error occurred while cloning the repo")
+		log.Infoln("Clone failed")
 		return
 	}
 
 	b.commitContainer()
 	b.tagImage()
 	b.pushImage()
+
+	go func() { builds <- b }()
 }
 
 func (b *Build) cloneRepo() int {
+	repo := fmt.Sprintf("git@git.corp.adobe.com:typekit/%s.git", b.App)
+
+	log.Infoln("Cloning :", repo)
+
 	opts := ContainerOpts(b.App, "clone")
-
 	opts.Config.Entrypoint = []string{"sh"}
-
-	log.Printf("Starting to clone the repo")
-
-	//opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s git@git.corp.adobe.com:typekit/%s.git . && bundle install --jobs 4 --deployment", b.Branch, b.App)}
-	opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s git@git.corp.adobe.com:typekit/%s.git .", b.Branch, b.App)}
+	opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s %s . && bundle install --jobs 4 --deployment", b.Branch, repo)}
 	b.Container = NewContainer(opts)
-
-	log.Printf("Waiting...")
 
 	return WaitForContainer(b.Container)
 }
@@ -51,7 +50,4 @@ func (b *Build) tagImage() {
 
 func (b *Build) pushImage() {
 	PushImage(b.Branch)
-}
-
-func (b *Build) runTests() {
 }
