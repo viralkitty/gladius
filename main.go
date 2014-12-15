@@ -13,13 +13,12 @@ import (
 )
 
 const (
-	FRAMEWORK_NAME  = "Gladius"
-	EXECUTOR_NAME   = "Test"
-	EXECUTOR_SOURCE = "go_test"
+	FRAMEWORK_NAME = "Gladius"
 )
 
 var master = flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
 var execUri = flag.String("executor", "/gladius/test-executor", "Path to test executor")
+var builds = make(chan *Build)
 
 func init() {
 	flag.Parse()
@@ -27,11 +26,14 @@ func init() {
 }
 
 func main() {
+	// routes
+	routes := &Routes{
+		builds: builds,
+	}
+
 	// build command executor
 	exec := &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID("default"),
-		Name:       proto.String(EXECUTOR_NAME),
-		Source:     proto.String(EXECUTOR_SOURCE),
 		Command:    util.NewCommandInfo(*execUri),
 	}
 
@@ -42,7 +44,7 @@ func main() {
 	}
 
 	driver, err := sched.NewMesosSchedulerDriver(
-		NewScheduler(exec),
+		NewScheduler(exec, builds),
 		fwinfo,
 		*master,
 		nil,
@@ -56,7 +58,7 @@ func main() {
 
 	log.Infoln("Listening at %s", listenAt)
 
-	http.HandleFunc("/builds", Builds)
+	http.HandleFunc("/builds", routes.Builds)
 
 	go http.ListenAndServe(listenAt, nil)
 
