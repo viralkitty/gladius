@@ -7,7 +7,11 @@ import (
 	"net/http"
 )
 
-func Builds(w http.ResponseWriter, req *http.Request) {
+type Routes struct {
+	builds chan *Build
+}
+
+func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case "POST":
 		var b Build
@@ -24,7 +28,7 @@ func Builds(w http.ResponseWriter, req *http.Request) {
 			log.Fatal("Could not unmarshal the request body: ", err)
 		}
 
-		go b.Create()
+		go b.Create(builds)
 	default:
 	}
 }
