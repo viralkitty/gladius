@@ -8,7 +8,7 @@ Gladius can be run with [Docker]. By default, Gladius runs on port `8080`.
 
 ### Create an SSH Key Container
 
-This container is will be used to authenticate to https://git.corp.adobe.com.
+This container will be used to authenticate with https://git.corp.adobe.com.
 
 ```bash
 docker run \
