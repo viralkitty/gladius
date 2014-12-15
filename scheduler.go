@@ -15,18 +15,18 @@ const (
 )
 
 type Scheduler struct {
+	builds        chan *Build
 	executor      *mesos.ExecutorInfo
 	tasksLaunched int
 	tasksFinished int
-	totalTasks    int
 }
 
-func NewScheduler(exec *mesos.ExecutorInfo) *Scheduler {
+func NewScheduler(exec *mesos.ExecutorInfo, builds chan *Build) *Scheduler {
 	return &Scheduler{
+		builds:        builds,
 		executor:      exec,
 		tasksLaunched: 0,
 		tasksFinished: 0,
-		totalTasks:    5,
 	}
 }
 
@@ -43,10 +43,9 @@ func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {
 }
 
 func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
-
-	log.Infoln("HELLO WORLD. OFFERING RESOURCES")
-
 	for _, offer := range offers {
+		build := <-sched.builds
+
 		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
 			return res.GetName() == "cpus"
 		})
@@ -65,15 +64,12 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 
 		log.Infoln("Received Offer <", offer.Id.GetValue(), "> with cpus=", cpus, " mem=", mems)
 
-		remainingCpus := cpus
-		remainingMems := mems
+		cpusLeft := cpus
+		memsLeft := mems
 
 		var tasks []*mesos.TaskInfo
 
-		for sched.tasksLaunched <= sched.totalTasks &&
-			CPUS_PER_TASK <= remainingCpus &&
-			MEM_PER_TASK <= remainingMems {
-
+		for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft {
 			sched.tasksLaunched++
 
 			taskId := &mesos.TaskID{
@@ -93,8 +89,8 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 			log.Infof("Prepared task: %s with offer %s for launch\n", task.GetName(), offer.Id.GetValue())
 
 			tasks = append(tasks, task)
-			remainingCpus -= CPUS_PER_TASK
-			remainingMems -= MEM_PER_TASK
+			cpusLeft -= CPUS_PER_TASK
+			memsLeft -= MEM_PER_TASK
 		}
 
 		log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
@@ -106,11 +102,6 @@ func (sched *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos
 	log.Infoln("Status update: task", status.TaskId.GetValue(), " is in state ", status.State.Enum().String())
 	if status.GetState() == mesos.TaskState_TASK_FINISHED {
 		sched.tasksFinished++
-	}
-
-	if sched.tasksFinished >= sched.totalTasks {
-		log.Infoln("Total tasks completed, stopping framework.")
-		//		driver.Stop(false)
 	}
 
 	if status.GetState() == mesos.TaskState_TASK_LOST ||
