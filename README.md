@@ -19,8 +19,8 @@ docker run \
   ubuntu
 ```
 
-*Note:* Ensure sure the container has a passwordless RSA key in the
-`/root/.ssh` directory, then add the corresponding public key to your
+*Note:* Ensure the container has a passwordless RSA key in the `/root/.ssh`
+directory, then add the corresponding public key to your
 https://git.corp.adobe.com account.
 
 ### Start Mesos Master
