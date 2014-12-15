@@ -1,6 +1,6 @@
 # Gladius
 
-> A [Mesos] framework with an API for running tests across a cluster.
+> A [Mesos] framework with an HTTP API for running tests across a cluster.
 
 ## Running Gladius
 
@@ -26,21 +26,51 @@ docker run \
   ubuntu
 ```
 
-```
-docker run --name mesos -d --net="host" -e MESOS_QUORUM=1 -e MESOS_LOG_DIR=/var/log -e MESOS_WORK_DIR=/tmp -e MESOS_IP=192.168.59.103 -e MESOS_PORT=5050 -p 5050:5050 redjack/mesos-master
-docker run --privileged=true -t -d --net="host" -e MESOS_IP=192.168.59.103 -e MESOS_LOG_DIR=/var/log -e MESOS_MASTER=192.168.59.103:5050 -e MESOS_CONTAINERIZERS=docker,mesos -p 5051:5051 -v $(which docker):$(which docker) -v /var/run/docker.sock:/var/run/docker.sock --volumes-from $(docker ps | grep gladius:latest | awk '{print $1}') razic/mesos-slave
-```
-
 *Note:* Ensure sure the container has a passwordless RSA key in the
 `/root/.ssh` directory, then add the corresponding public key to your
 https://git.corp.adobe.com account.
 
-###  Run Gladius
+### Start Mesos Master
+
+```bash
+docker run \
+  --name mesos \
+  --detach \
+  --net host \
+  --env MESOS_QUORUM=1 \
+  --env MESOS_LOG_DIR=/var/log \
+  --env MESOS_WORK_DIR=/tmp \
+  --env MESOS_IP=192.168.59.103 \
+  --env MESOS_PORT=5050 \
+  --publish 5050:5050 \
+  redjack/mesos-master
+```
+
+### Start Gladius
 
 From the root of this directory:
 
 ```bash
 ./run.sh gladius --master $MESOS_MASTER_HOST:$MESOS_MASTER_PORT --logtostderr
+```
+
+### Start Mesos Slave
+
+```bash
+docker run \
+  --privileged \
+  --tty \
+  --detach \
+  --net host \
+  --env MESOS_IP=192.168.59.103 \
+  --env MESOS_LOG_DIR=/var/log \
+  --env MESOS_MASTER=192.168.59.103:5050 \
+  --env MESOS_CONTAINERIZERS=docker,mesos \
+  --publish 5051:5051 \
+  --volume $(which docker):$(which docker) \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  --volumes-from $(docker ps | grep gladius:latest | awk '{print $1}') \
+  razic/mesos-slave
 ```
 
 [Docker]: https://docker.com
