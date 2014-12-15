@@ -6,13 +6,6 @@
 
 Gladius can be run with [Docker]. By default, Gladius runs on port `8080`.
 
-### Start [Mesos]
-
-Use the link below to set up your [Mesos] cluster locally. You'll need to follow
-all the steps except the Marathon part.
-
-http://viralkitty.com/marathon-and-docker
-
 ### Create an SSH Key Container
 
 This container is will be used to authenticate to https://git.corp.adobe.com.
