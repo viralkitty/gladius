@@ -46,6 +46,8 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 	for _, offer := range offers {
 		build := <-sched.builds
 
+		log.Infoln(build)
+
 		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
 			return res.GetName() == "cpus"
 		})

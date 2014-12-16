@@ -34,7 +34,8 @@ func (b *Build) cloneRepo() int {
 
 	opts := ContainerOpts(b.App, "clone")
 	opts.Config.Entrypoint = []string{"sh"}
-	opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s %s . && bundle install --jobs 4 --deployment", b.Branch, repo)}
+	opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s %s .", b.Branch, repo)}
+	//opts.Config.Cmd = []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s %s . && bundle install --jobs 4 --deployment", b.Branch, repo)}
 	b.Container = NewContainer(opts)
 
 	return WaitForContainer(b.Container)
