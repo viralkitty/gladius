@@ -71,29 +71,29 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 
 		var tasks []*mesos.TaskInfo
 
-		for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft {
-			sched.tasksLaunched++
+		//for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft {
+		sched.tasksLaunched++
 
-			taskId := &mesos.TaskID{
-				Value: proto.String(strconv.Itoa(sched.tasksLaunched)),
-			}
-
-			task := &mesos.TaskInfo{
-				Name:     proto.String("go-task-" + taskId.GetValue()),
-				TaskId:   taskId,
-				SlaveId:  offer.SlaveId,
-				Executor: sched.executor,
-				Resources: []*mesos.Resource{
-					util.NewScalarResource("cpus", CPUS_PER_TASK),
-					util.NewScalarResource("mem", MEM_PER_TASK),
-				},
-			}
-			log.Infof("Prepared task: %s with offer %s for launch\n", task.GetName(), offer.Id.GetValue())
-
-			tasks = append(tasks, task)
-			cpusLeft -= CPUS_PER_TASK
-			memsLeft -= MEM_PER_TASK
+		taskId := &mesos.TaskID{
+			Value: proto.String(strconv.Itoa(sched.tasksLaunched)),
 		}
+
+		task := &mesos.TaskInfo{
+			Name:     proto.String("go-task-" + taskId.GetValue()),
+			TaskId:   taskId,
+			SlaveId:  offer.SlaveId,
+			Executor: sched.executor,
+			Resources: []*mesos.Resource{
+				util.NewScalarResource("cpus", CPUS_PER_TASK),
+				util.NewScalarResource("mem", MEM_PER_TASK),
+			},
+		}
+		log.Infof("Prepared task: %s with offer %s for launch\n", task.GetName(), offer.Id.GetValue())
+
+		tasks = append(tasks, task)
+		cpusLeft -= CPUS_PER_TASK
+		memsLeft -= MEM_PER_TASK
+		//}
 
 		log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
 		driver.LaunchTasks([]*mesos.OfferID{offer.Id}, tasks, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
