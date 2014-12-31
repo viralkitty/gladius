@@ -34,7 +34,9 @@ RUN apt-get update && \
     git clone $MESOS_GIT_URL $MESOS_GO_PATH && \
     cd $MESOS_GO_PATH && \
     go get github.com/tools/godep && \
-    godep restore
+    godep restore && \
+    cd $GOPATH && \
+    go get github.com/fsouza/go-dockerclient
 
 # copy gladius
 ADD . /gladius
@@ -47,7 +49,6 @@ RUN cd $MESOS_GO_PATH/examples && \
     mkdir -p $GLADIUS_GO_PATH && \
     cp -r /gladius $(dirname $GLADIUS_GO_PATH) && \
     cd $GOPATH && \
-    go get -d -v ... && \
     go install $GLADIUS
 
 VOLUME /gladius
