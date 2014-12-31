@@ -5,8 +5,7 @@
 		"AttachStdout": true,
 		"AttachStderr": true,
 		"Image": "razic/bundler",
-		"WorkingDir": "/typekit",
-		"Volumes": { "/typekit": {} }
+		"WorkingDir": "/"
 	},
 	"HostConfig": {
 		"VolumesFrom": ["ssh"]
