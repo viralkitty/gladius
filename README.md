@@ -51,5 +51,11 @@ bin/run gladius --master 192.168.59.103:5050 --executor /go/bin/gladius-executor
 
 See https://git.corp.adobe.com/typekit/gladius-executor
 
+### Start a Build
+
+```bash
+curl -i -XPOST -d'{"app":"typekit","branch":"master"}' 192.168.59.103:8080/builds
+```
+
 [Docker]: https://docker.com
 [Mesos]: http://mesos.apache.org/
