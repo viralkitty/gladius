@@ -44,27 +44,12 @@ docker run \
 From the root of this directory:
 
 ```bash
-bin/run gladius --master 192.168.59.103:5050 --logtostderr
+bin/run gladius --master 192.168.59.103:5050 --executor /go/bin/gladius-executor --logtostderr
 ```
 
-### Start Mesos Slave
+### Start Gladius Executor
 
-```bash
-docker run \
-  --privileged \
-  --tty \
-  --detach \
-  --net host \
-  --env MESOS_IP=192.168.59.103 \
-  --env MESOS_LOG_DIR=/var/log \
-  --env MESOS_MASTER=192.168.59.103:5050 \
-  --env MESOS_CONTAINERIZERS=docker,mesos \
-  --publish 5051:5051 \
-  --volume $(which docker):$(which docker) \
-  --volume /var/run/docker.sock:/var/run/docker.sock \
-  --volumes-from $(docker ps | grep gladius:latest | awk '{print $1}') \
-  razic/mesos-slave
-```
+See https://git.corp.adobe.com/typekit/gladius-executor
 
 [Docker]: https://docker.com
 [Mesos]: http://mesos.apache.org/
