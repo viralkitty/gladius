@@ -44,7 +44,7 @@ docker run \
 From the root of this directory:
 
 ```bash
-./run.sh gladius --master $MESOS_MASTER_HOST:$MESOS_MASTER_PORT --logtostderr
+bin/run gladius --master 192.168.59.103:5050 --logtostderr
 ```
 
 ### Start Mesos Slave
