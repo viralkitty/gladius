@@ -8,7 +8,7 @@ import (
 )
 
 type Routes struct {
-	builds chan *Build
+	Scheduler *Scheduler
 }
 
 func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
@@ -28,7 +28,7 @@ func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
 			log.Fatal("Could not unmarshal the request body: ", err)
 		}
 
-		go b.Create(builds)
+		go b.Create(r.Scheduler)
 	default:
 	}
 }
