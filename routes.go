@@ -12,6 +12,9 @@ type Routes struct {
 }
 
 func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
+
 	switch req.Method {
 	case "POST":
 		var b Build
