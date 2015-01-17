@@ -35,8 +35,11 @@ RUN apt-get update && \
     cd $MESOS_GO_PATH && \
     go get github.com/tools/godep && \
     godep restore && \
+    go build ./... && \
     cd $GOPATH && \
-    go get github.com/fsouza/go-dockerclient
+    go get github.com/fsouza/go-dockerclient && \
+    go get github.com/garyburd/redigo/redis && \
+    go get code.google.com/p/go-uuid/uuid
 
 # copy gladius
 ADD . /gladius
