@@ -6,15 +6,13 @@ import (
 	"github.com/fsouza/go-dockerclient"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	"log"
-	"os"
 	"strings"
 )
 
-var client, _ = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
-
 type Build struct {
-	App    string
-	Branch string
+	Id     string `json:"id,omitempty"`
+	App    string `json:"app,omitempty"`
+	Branch string `json:"branch,omitempty"`
 }
 
 func (b *Build) Create(scheduler *Scheduler) {
@@ -51,7 +49,7 @@ func (b *Build) Create(scheduler *Scheduler) {
 		OutputStream: &buf,
 	}
 	authConfig := docker.AuthConfiguration{}
-	c, err := client.CreateContainer(createOpts)
+	c, err := dockerCli.CreateContainer(createOpts)
 	commitOpts := docker.CommitContainerOptions{
 		Container:  c.ID,
 		Repository: imgName,
@@ -68,7 +66,7 @@ func (b *Build) Create(scheduler *Scheduler) {
 
 	log.Printf("Starting container: %v", c)
 
-	err = client.StartContainer(c.ID, createOpts.HostConfig)
+	err = dockerCli.StartContainer(c.ID, createOpts.HostConfig)
 
 	if err != nil {
 		log.Printf("Could not start container: %v", err)
@@ -77,7 +75,7 @@ func (b *Build) Create(scheduler *Scheduler) {
 
 	log.Printf("Waiting for container: %v", c)
 
-	status, err = client.WaitContainer(c.ID)
+	status, err = dockerCli.WaitContainer(c.ID)
 
 	if err != nil {
 		log.Printf("Could not wait for the container: %v", err)
@@ -91,7 +89,7 @@ func (b *Build) Create(scheduler *Scheduler) {
 
 	log.Printf("Commiting container into image")
 
-	_, err = client.CommitContainer(commitOpts)
+	_, err = dockerCli.CommitContainer(commitOpts)
 
 	if err != nil {
 		log.Printf("Could not commit container: %v", err)
@@ -100,7 +98,7 @@ func (b *Build) Create(scheduler *Scheduler) {
 
 	log.Printf("Tagging image with: %s", b.Branch)
 
-	err = client.TagImage(imgName, tagOpts)
+	err = dockerCli.TagImage(imgName, tagOpts)
 
 	if err != nil {
 		log.Printf("Could not tag the image:", err)
@@ -109,7 +107,7 @@ func (b *Build) Create(scheduler *Scheduler) {
 
 	log.Printf("Removing container")
 
-	err = client.RemoveContainer(removeOpts)
+	err = dockerCli.RemoveContainer(removeOpts)
 
 	if err != nil {
 		log.Printf("Could not remove the container: %v", err)
@@ -118,7 +116,7 @@ func (b *Build) Create(scheduler *Scheduler) {
 
 	log.Printf("Pushing image")
 
-	err = client.PushImage(pushOpts, authConfig)
+	err = dockerCli.PushImage(pushOpts, authConfig)
 
 	if err != nil {
 		log.Printf("Could not push the image: %v", err)

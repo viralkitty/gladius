@@ -1,9 +1,11 @@
 package main
 
 import (
-	"code.google.com/p/gogoprotobuf/proto"
 	"flag"
 	"fmt"
+	"github.com/fsouza/go-dockerclient"
+	"github.com/garyburd/redigo/redis"
+	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
@@ -18,10 +20,20 @@ const (
 
 var master = flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
 var execUri = flag.String("executor", "/gladius/test-executor", "Path to test executor")
+var redisCli, redisCliErr = redis.Dial("tcp", os.Getenv("REDIS_TCP_ADDR"))
+var dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
 
 func init() {
 	flag.Parse()
 	log.Printf("Initializing the Example Scheduler...")
+
+	if redisCliErr != nil {
+		log.Fatal("Failed to connect with Redis: %v", redisCliErr)
+	}
+
+	if dockerCliErr != nil {
+		log.Fatal("Failed to connect with Redis: %v", dockerCliErr)
+	}
 }
 
 func main() {
