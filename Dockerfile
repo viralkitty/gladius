@@ -1,7 +1,6 @@
 FROM ubuntu:14.04
 
 # env vars
-ENV DEBIAN_FRONTEND noninteractive
 ENV GLADIUS_HTTP_PORT 8080
 ENV DOCKER_SOCK_PATH unix:///var/run/docker.sock
 ENV GOPATH /go
@@ -19,7 +18,7 @@ EXPOSE 8080
 
 # prerequisites
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     gcc \
@@ -38,8 +37,7 @@ RUN apt-get update && \
     go build ./... && \
     cd $GOPATH && \
     go get github.com/fsouza/go-dockerclient && \
-    go get github.com/garyburd/redigo/redis && \
-    go get code.google.com/p/go-uuid/uuid
+    go get github.com/garyburd/redigo/redis
 
 # copy gladius
 ADD . /gladius
@@ -49,7 +47,5 @@ RUN mkdir -p $GLADIUS_GO_PATH && \
     cp -r /gladius $(dirname $GLADIUS_GO_PATH) && \
     cd $GOPATH && \
     go install $GLADIUS
-
-VOLUME /gladius
 
 CMD ["gladius"]

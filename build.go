@@ -2,28 +2,146 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/fsouza/go-dockerclient"
+	"github.com/garyburd/redigo/redis"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	"log"
+	"math/rand"
+	"strconv"
 	"strings"
 )
 
 type Build struct {
-	Id     string `json:"id,omitempty"`
-	App    string `json:"app,omitempty"`
-	Branch string `json:"branch,omitempty"`
+	Id               string                 `json:"id,omitempty"`
+	App              string                 `json:"app,omitempty"`
+	Branch           string                 `json:"branch,omitempty"`
+	Log              string                 `json:"log,omitempty"`
+	State            string                 `json:"state,omitempty"`
+	Container        *docker.Container      `json:"-"`
+	Scheduler        *Scheduler             `json:"-"`
+	TaskStatusesChan chan *mesos.TaskStatus `json:"-"`
+	Tasks            []*Task                `json:"tasks,omitempty"`
 }
 
-func (b *Build) Create(scheduler *Scheduler) {
-	var status int
-	var buf bytes.Buffer
+func NewBuild(scheduler *Scheduler) *Build {
+	// TODO: Dynamically generate list of tasks
 
-	log.Printf("Starting new build for %s:%s", b.App, b.Branch)
+	return &Build{
+		Scheduler: scheduler,
+		Id:        strconv.Itoa(rand.Int()),
+		State:     "running",
+		Tasks: []*Task{
+			NewTask("rspec spec/api --no-color"),
+			NewTask("rspec spec/config --no-color"),
+			NewTask("rspec spec/controllers --no-color"),
+			NewTask("rspec spec/helpers --no-color"),
+			NewTask("rspec spec/integration --no-color"),
+			NewTask("rspec spec/lib --no-color"),
+			NewTask("rspec spec/mails --no-color"),
+			NewTask("rspec spec/racks --no-color"),
+			NewTask("rspec spec/requests --no-color"),
+			NewTask("rspec spec/routing --no-color"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/accounts"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/auth"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/api"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/web"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/ccm"),
+			NewTask("cucumber --profile=licensing --no-color --format=progress features/licensing"),
+			NewTask("cucumber --profile=mails --no-color --format=progress features/mails"),
+		},
+		TaskStatusesChan: make(chan *mesos.TaskStatus),
+	}
+}
 
-	imgName := fmt.Sprintf("typekit/%s", b.App)
-	fullImgName := fmt.Sprintf("docker.corp.adobe.com/%s", imgName)
-	gitRepo := fmt.Sprintf("git@git.corp.adobe.com:%s.git", imgName)
+func AllBuilds() []Build {
+	var builds []Build
+
+	prefix := "pugio:builds:"
+	keys, err := redis.Strings(redisCli.Do("KEYS", fmt.Sprintf("%s*", prefix)))
+
+	if err != nil {
+		log.Printf("Could not get keys: %s", err)
+		return nil
+	}
+
+	for _, key := range keys {
+		log.Printf("found key: %s", key)
+
+		var b *Build
+		var buildJsonBytes []byte
+
+		buildJsonBytes, err = redis.Bytes(redisCli.Do("GET", key))
+
+		if err != nil {
+			log.Printf("Could not get key: %s", key)
+			continue
+		}
+
+		err = json.Unmarshal(buildJsonBytes, &b)
+
+		if err != nil {
+			log.Printf("Could not unmarshal object: %v", err)
+			return nil
+		}
+
+		builds = append(builds, *b)
+	}
+
+	return builds
+}
+
+func (b *Build) Build() {
+	b.Save()
+	b.setRedisExpiry()
+
+	if b.createContainer() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
+	if b.startContainer() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
+	if b.waitContainer() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
+	if b.commitContainer() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
+	if b.removeContainer() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
+	if b.pushImage() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
+	if b.launchTasks() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
+}
+
+func (b *Build) log(msg string) {
+	log.Print(msg)
+	redisCli.Do("APPEND", b.RedisLogKey(), fmt.Sprintf("%s\n\n", msg))
+}
+
+func (b *Build) createContainer() error {
+	b.log("Creating container")
+
 	createOpts := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Tty:          true,
@@ -31,133 +149,217 @@ func (b *Build) Create(scheduler *Scheduler) {
 			AttachStdout: true,
 			AttachStderr: true,
 			WorkingDir:   "/",
-			Image:        "razic/bundler",
+			Image:        "docker.corp.adobe.com/typekit/bundler-typekit",
 			Entrypoint:   []string{"sh"},
-			Cmd:          []string{"-c", fmt.Sprintf("git clone --depth 1 --branch %s %s && cd %s", b.Branch, gitRepo, b.App)},
+			Cmd:          []string{"-c", b.CloneCmd()},
 		},
 		HostConfig: &docker.HostConfig{
 			VolumesFrom: []string{"ssh"},
 		},
 	}
-	tagOpts := docker.TagImageOptions{
-		Force: true,
-		Tag:   b.Branch,
-		Repo:  fullImgName,
-	}
-	pushOpts := docker.PushImageOptions{
-		Name:         fullImgName,
-		OutputStream: &buf,
-	}
-	authConfig := docker.AuthConfiguration{}
-	c, err := dockerCli.CreateContainer(createOpts)
-	commitOpts := docker.CommitContainerOptions{
-		Container:  c.ID,
-		Repository: imgName,
-	}
-	removeOpts := docker.RemoveContainerOptions{
-		ID:    c.ID,
-		Force: true,
-	}
+	var err error
+	b.Container, err = dockerCli.CreateContainer(createOpts)
 
 	if err != nil {
-		log.Printf("Could not create container: %v", err)
-		return
+		b.log("Could not create container")
+		b.log(err.Error())
+		return err
 	}
 
-	log.Printf("Starting container: %v", c)
+	log.Printf("%+v", b.Container)
 
-	err = dockerCli.StartContainer(c.ID, createOpts.HostConfig)
+	return nil
+}
+
+func (b *Build) startContainer() error {
+	b.log("Starting container")
+
+	err := dockerCli.StartContainer(b.Container.ID, &docker.HostConfig{
+		VolumesFrom: []string{"ssh"},
+	})
 
 	if err != nil {
-		log.Printf("Could not start container: %v", err)
-		return
+		b.log("Could not start container")
+		b.log(err.Error())
+		return err
 	}
 
-	log.Printf("Waiting for container: %v", c)
+	log.Printf("%+v", b.Container)
 
-	status, err = dockerCli.WaitContainer(c.ID)
+	return nil
+}
+
+func (b *Build) waitContainer() error {
+	b.log("Waiting for container")
+
+	status, err := dockerCli.WaitContainer(b.Container.ID)
 
 	if err != nil {
-		log.Printf("Could not wait for the container: %v", err)
-		return
+		b.log("Could not wait for container")
+		b.log(err.Error())
+		return err
 	}
 
 	if status != 0 {
-		log.Printf("Clone or bundle failed in container %d", c.ID)
-		return
+		msg := "Clone or bundle failed"
+
+		b.log(msg)
+		return errors.New(msg)
 	}
 
-	log.Printf("Commiting container into image")
+	return nil
+}
 
-	_, err = dockerCli.CommitContainer(commitOpts)
+func (b *Build) commitContainer() error {
+	b.log("Commiting container")
 
-	if err != nil {
-		log.Printf("Could not commit container: %v", err)
-		return
+	commitOpts := docker.CommitContainerOptions{
+		Container:  b.Container.ID,
+		Repository: b.FullImgName(),
+		Tag:        b.Id,
 	}
 
-	log.Printf("Tagging image with: %s", b.Branch)
-
-	err = dockerCli.TagImage(imgName, tagOpts)
+	_, err := dockerCli.CommitContainer(commitOpts)
 
 	if err != nil {
-		log.Printf("Could not tag the image:", err)
-		return
+		b.log("Could not commit container")
+		b.log(err.Error())
+		return err
 	}
 
-	log.Printf("Removing container")
+	return nil
+}
 
-	err = dockerCli.RemoveContainer(removeOpts)
+func (b *Build) removeContainer() error {
+	b.log("Removing container")
 
-	if err != nil {
-		log.Printf("Could not remove the container: %v", err)
-		return
+	removeOpts := docker.RemoveContainerOptions{
+		ID:    b.Container.ID,
+		Force: true,
 	}
 
-	log.Printf("Pushing image")
-
-	err = dockerCli.PushImage(pushOpts, authConfig)
+	err := dockerCli.RemoveContainer(removeOpts)
 
 	if err != nil {
-		log.Printf("Could not push the image: %v", err)
-		return
+		b.log("Could not remove the container")
+		b.log(err.Error())
+		return err
+	}
+
+	return nil
+}
+
+func (b *Build) pushImage() error {
+	b.log("Pushing image")
+
+	var buf bytes.Buffer
+
+	pushOpts := docker.PushImageOptions{
+		Name:         b.FullImgName(),
+		OutputStream: &buf,
+	}
+
+	authConfig := docker.AuthConfiguration{}
+
+	err := dockerCli.PushImage(pushOpts, authConfig)
+	msg := "Could not push the image"
+
+	if err != nil {
+		b.log(msg)
+		b.log(err.Error())
+		return err
 	}
 
 	if strings.Contains(buf.String(), "Image successfully pushed") != true {
-		log.Printf("Push was unsuccessful: %v", err)
-		return
+		b.log(msg)
+		return errors.New(msg)
 	}
 
-	taskStatusChan := make(chan mesos.TaskStatus)
+	return nil
+}
 
-	log.Printf("Launching Tasks")
+func (b *Build) launchTasks() error {
+	for _, task := range b.Tasks {
+		log.Printf("throwing task into chan: %+v", task)
+		task.Build = b
+		tasks <- task
+	}
 
-	go func() {
-		scheduler.chanchan <- Task{
-			Cmd:    "rspec spec/models/kit_spec.rb",
-			Output: taskStatusChan,
+	for i := 0; i < len(b.Tasks); i++ {
+		status := <-b.TaskStatusesChan
+
+		for _, tk := range b.Tasks {
+			if tk.Id != status.TaskId.GetValue() {
+				continue
+			}
+
+			tk.Status = status
 		}
-	}()
 
-	go func() {
-		scheduler.chanchan <- Task{
-			Cmd:    "rspec spec/controllers/errors_controller_spec.rb",
-			Output: taskStatusChan,
-		}
-	}()
+		b.Save()
+	}
 
-	log.Printf("Waiting for results", status)
-
-	for i := 0; i < 2; i++ {
-		status := <-taskStatusChan
-
-		log.Printf("Got status %+v", status)
-
-		if status.GetState() != mesos.TaskState_TASK_FINISHED {
+	for _, task := range b.Tasks {
+		if task.Status.GetState() != mesos.TaskState_TASK_FINISHED {
 			log.Print("Failure")
-			return
+			return errors.New("Failed running")
 		}
 	}
 
 	log.Print("Success!!!!!!!!!!!!!!")
+
+	return nil
+}
+
+func (b *Build) Save() error {
+	b.log("Persisting in Redis")
+
+	buildJson, err := json.Marshal(b)
+
+	if err != nil {
+		log.Printf("json error: %+v", err)
+		return err
+	}
+
+	_, err = redisCli.Do("SET", b.RedisKey(), buildJson)
+
+	if err != nil {
+		log.Printf("problem setting key: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (b *Build) setRedisExpiry() error {
+	b.log("Setting redis key expirations.")
+
+	redisCli.Do("EXPIRE", b.RedisKey(), 3600)
+	redisCli.Do("EXPIRE", b.RedisLogKey(), 3600)
+
+	return nil
+}
+
+func (b *Build) RedisKey() string {
+	return fmt.Sprintf("pugio:builds:%s", b.Id)
+}
+
+func (b *Build) GitRepo() string {
+	return fmt.Sprintf("git@git.corp.adobe.com:%s.git", b.ImgName())
+}
+
+func (b *Build) ImgName() string {
+	return fmt.Sprintf("typekit/%s", b.App)
+}
+
+func (b *Build) FullImgName() string {
+	return fmt.Sprintf("docker.corp.adobe.com/%s", b.ImgName())
+}
+
+func (b *Build) CloneCmd() string {
+	return fmt.Sprintf("git clone --depth 1 --branch %s %s && cd %s && bundle install --jobs 4 --deployment", b.Branch, b.GitRepo(), b.App)
+}
+
+func (b *Build) RedisLogKey() string {
+	return fmt.Sprintf("pugio:logs:%s", b.Id)
 }

@@ -1,12 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
 	"log"
-	"strconv"
 )
 
 const (
@@ -15,20 +15,18 @@ const (
 )
 
 type Scheduler struct {
-	executor      *mesos.ExecutorInfo
-	tasksLaunched int
-	tasksFinished int
-	chanchan      chan Task
-	taskChans     map[string]chan mesos.TaskStatus
+	executor          *mesos.ExecutorInfo
+	tasksLaunched     int
+	tasksFinished     int
+	taskStatusesChans map[string]chan *mesos.TaskStatus
 }
 
 func NewScheduler(exec *mesos.ExecutorInfo) *Scheduler {
 	return &Scheduler{
-		executor:      exec,
-		tasksLaunched: 0,
-		tasksFinished: 0,
-		taskChans:     make(map[string](chan mesos.TaskStatus)),
-		chanchan:      make(chan Task),
+		executor:          exec,
+		tasksLaunched:     0,
+		tasksFinished:     0,
+		taskStatusesChans: make(map[string]chan *mesos.TaskStatus),
 	}
 }
 
@@ -45,8 +43,8 @@ func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {
 }
 
 func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
-	go func() {
-		for _, offer := range offers {
+	for _, offer := range offers {
+		go func() {
 			cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
 				return res.GetName() == "cpus"
 			})
@@ -68,64 +66,68 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 			//cpusLeft := cpus
 			//memsLeft := mems
 
-			//for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft {
-			obj := <-sched.chanchan
+			//for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft && len(build.Tasks) > 0 {
+			task := <-tasks
 
-			log.Printf("Got a obj %+v", obj)
+			// need build id because this is the docker image "tag"
+			task.BuildId = task.Build.Id
+			taskJsonBytes, err := json.Marshal(task)
+
+			if err != nil {
+				log.Printf("Could not marshal task")
+				return
+			}
+
+			log.Printf("got task: %+v", task)
 
 			sched.tasksLaunched++
 
 			taskId := &mesos.TaskID{
-				Value: proto.String(strconv.Itoa(sched.tasksLaunched)),
+				Value: proto.String(task.Id),
 			}
 
-			sched.taskChans[taskId.GetValue()] = obj.Output
+			sched.taskStatusesChans[task.Id] = task.Build.TaskStatusesChan
 
-			task := &mesos.TaskInfo{
-				Name:     proto.String("go-task-" + taskId.GetValue()),
+			taskInfo := &mesos.TaskInfo{
+				Name:     proto.String(task.Id),
 				TaskId:   taskId,
 				SlaveId:  offer.SlaveId,
-				Data:     []byte(obj.Cmd),
+				Data:     taskJsonBytes,
 				Executor: sched.executor,
 				Resources: []*mesos.Resource{
 					util.NewScalarResource("cpus", CPUS_PER_TASK),
 					util.NewScalarResource("mem", MEM_PER_TASK),
 				},
 			}
-			log.Printf("Launching task: %s with offer %s\n", task.GetName(), offer.Id.GetValue())
 
-			driver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{task}, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
+			log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), offer.Id.GetValue())
 
-			//	cpusLeft -= CPUS_PER_TASK
-			//	memsLeft -= MEM_PER_TASK
+			//cpusLeft -= CPUS_PER_TASK
+			//memsLeft -= MEM_PER_TASK
+
+			driver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{taskInfo}, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
 			//}
-		}
-	}()
+		}()
+	}
 }
 
 func (sched *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
 	go func() {
+		statusChan := sched.taskStatusesChans[status.TaskId.GetValue()]
+
 		log.Printf("Status update: task %v is in state %s", status.TaskId.GetValue(), status.State.Enum().String())
 
 		if status.GetState() == mesos.TaskState_TASK_FINISHED {
-			go func() {
-				sched.taskChans[status.TaskId.GetValue()] <- *status
-			}()
-
 			sched.tasksFinished++
+			go func() { statusChan <- status }()
 		}
 
 		if status.GetState() == mesos.TaskState_TASK_LOST ||
 			status.GetState() == mesos.TaskState_TASK_KILLED ||
 			status.GetState() == mesos.TaskState_TASK_FAILED {
-
-			log.Printf("Aborting because task %v is in unexpected state %s with message %s", status.TaskId.GetValue(), status.State.String(), status.GetMessage())
-
-			go func() {
-				sched.taskChans[status.TaskId.GetValue()] <- *status
-			}()
-
-			driver.Abort()
+			//log.Printf("Aborting because task %v is in unexpected state %s with message %s", status.TaskId.GetValue(), status.State.String(), status.GetMessage())
+			go func() { statusChan <- status }()
+			//driver.Abort()
 		}
 	}()
 }

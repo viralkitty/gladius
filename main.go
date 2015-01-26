@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"github.com/fsouza/go-dockerclient"
 	"github.com/garyburd/redigo/redis"
@@ -10,21 +9,23 @@ import (
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
+	"time"
 )
 
 const (
 	FRAMEWORK_NAME = "Gladius"
 )
 
-var master = flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
-var execUri = flag.String("executor", "/gladius/test-executor", "Path to test executor")
+var master = os.Getenv("MESOS_MASTER")
+var execUri = os.Getenv("EXEC_URI")
 var redisCli, redisCliErr = redis.Dial("tcp", os.Getenv("REDIS_TCP_ADDR"))
 var dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
+var tasks = make(chan *Task)
 
 func init() {
-	flag.Parse()
 	log.Printf("Initializing the Example Scheduler...")
 
 	if redisCliErr != nil {
@@ -34,13 +35,15 @@ func init() {
 	if dockerCliErr != nil {
 		log.Fatal("Failed to connect with Redis: %v", dockerCliErr)
 	}
+
+	rand.Seed(time.Now().UTC().UnixNano())
 }
 
 func main() {
 	// build command executor
 	exec := &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID("default"),
-		Command:    util.NewCommandInfo(*execUri),
+		Command:    util.NewCommandInfo(execUri),
 	}
 
 	// the framework
@@ -54,7 +57,7 @@ func main() {
 	driver, err := sched.NewMesosSchedulerDriver(
 		scheduler,
 		fwinfo,
-		*master,
+		master,
 		nil,
 	)
 

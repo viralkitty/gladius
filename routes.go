@@ -1,14 +1,10 @@
 package main
 
 import (
-	"code.google.com/p/go-uuid/uuid"
 	"encoding/json"
-	"fmt"
-	"github.com/garyburd/redigo/redis"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"strings"
 )
 
 type Routes struct {
@@ -16,8 +12,6 @@ type Routes struct {
 }
 
 func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
-	var body []byte
-
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Add("Access-Control-Allow-Headers", "Content-Type")
@@ -26,22 +20,11 @@ func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
 	case "GET":
 		log.Printf("GET /builds")
 
-		keys, err := redis.Strings(redisCli.Do("KEYS", "pugio:builds:typekit:*"))
-		keysWithoutPrefix := make([]string, len(keys))
+		builds := AllBuilds()
+		body, err := json.Marshal(builds)
 
 		if err != nil {
-			log.Printf("Could not get keys: %s", err)
-			return
-		}
-
-		for i, key := range keys {
-			keysWithoutPrefix[i] = strings.Replace(key, "pugio:builds:typekit:", "", 1)
-		}
-
-		body, err = json.Marshal(keysWithoutPrefix)
-
-		if err != nil {
-			log.Printf("Could not marshal object")
+			log.Printf("Could not marshal the builds: %v", err)
 			return
 		}
 
@@ -49,28 +32,23 @@ func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
 	case "POST":
 		log.Printf("POST /builds")
 
-		var b Build
-
+		b := NewBuild(r.Scheduler)
 		body, err := ioutil.ReadAll(req.Body)
 
 		if err != nil {
-			log.Fatal("Could not read the request body: ", err)
+			log.Printf("Could not read the request body: %v", err)
+			return
 		}
 
-		err = json.Unmarshal(body, &b)
+		err = json.Unmarshal(body, b)
 
 		if err != nil {
 			log.Fatal("Could not unmarshal the request body: ", err)
 		}
 
-		b.Id = uuid.New()
+		body, err = json.Marshal(*b)
 
-		body, err = json.Marshal(b)
-
-		log.Printf("%+v", b)
-
-		go b.Create(r.Scheduler)
-		go redisCli.Do("HMSET", fmt.Sprintf("pugio:builds:typekit:%s", b.Id), "app", b.App, "branch", b.Branch)
+		go b.Build()
 
 		w.Write(body)
 	default:
