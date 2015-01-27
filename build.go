@@ -14,6 +14,11 @@ import (
 	"strings"
 )
 
+const (
+	dockerRegistry = "docker.corp.adobe.com"
+	baseImage      = "docker.corp.adobe.com/typekit/bundler-typekit"
+)
+
 type Build struct {
 	Id               string                 `json:"id,omitempty"`
 	App              string                 `json:"app,omitempty"`
@@ -97,6 +102,11 @@ func (b *Build) Build() {
 	b.Save()
 	b.setRedisExpiry()
 
+	if b.pullImage() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
 	if b.createContainer() != nil {
 		b.State = "failed"
 		b.Save()
@@ -149,7 +159,7 @@ func (b *Build) createContainer() error {
 			AttachStdout: true,
 			AttachStderr: true,
 			WorkingDir:   "/",
-			Image:        "docker.corp.adobe.com/typekit/bundler-typekit",
+			Image:        baseImage,
 			Entrypoint:   []string{"sh"},
 			Cmd:          []string{"-c", b.CloneCmd()},
 		},
@@ -205,6 +215,25 @@ func (b *Build) waitContainer() error {
 
 		b.log(msg)
 		return errors.New(msg)
+	}
+
+	return nil
+}
+
+func (b *Build) pullImage() error {
+	b.log("Pulling typekit bundler")
+
+	opts := docker.PullImageOptions{
+		Repository: baseImage,
+		Registry:   dockerRegistry,
+	}
+
+	err := dockerCli.PullImage(opts, docker.AuthConfiguration{})
+
+	if err != nil {
+		b.log("Could not pull bundler typekit image")
+		b.log(err.Error())
+		return err
 	}
 
 	return nil
@@ -353,11 +382,11 @@ func (b *Build) ImgName() string {
 }
 
 func (b *Build) FullImgName() string {
-	return fmt.Sprintf("docker.corp.adobe.com/%s", b.ImgName())
+	return fmt.Sprintf("%s/%s", dockerRegistry, b.ImgName())
 }
 
 func (b *Build) CloneCmd() string {
-	return fmt.Sprintf("git clone --depth 1 --branch %s %s && cd %s && bundle install --jobs 4 --deployment", b.Branch, b.GitRepo(), b.App)
+	return fmt.Sprintf("(ssh -o StrictHostKeyChecking=no git@git.corp.adobe.com || true) && git clone --depth 1 --branch %s %s && cd %s && bundle install --jobs 4 --deployment", b.Branch, b.GitRepo(), b.App)
 }
 
 func (b *Build) RedisLogKey() string {
