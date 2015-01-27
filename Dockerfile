@@ -4,12 +4,12 @@ FROM ubuntu:14.04
 ENV GLADIUS_HTTP_PORT 8080
 ENV DOCKER_SOCK_PATH unix:///var/run/docker.sock
 ENV GOPATH /go
-ENV GOLANG_VERSION 1.3.3
+ENV GOLANG_VERSION 1.4
 ENV GOLANG_URL https://golang.org/dl/go$GOLANG_VERSION.src.tar.gz
 ENV PATH /usr/src/go/bin:/go/bin:$PATH
-ENV MESOS github.com/mesos/mesos-go
+ENV MESOS github.com/razic/mesos-go
 ENV MESOS_GIT_URL https://$MESOS.git
-ENV MESOS_GO_PATH $GOPATH/src/$MESOS
+ENV MESOS_GO_PATH $GOPATH/src/github.com/mesos/mesos-go
 ENV GLADIUS git.corp.adobe.com/typekit/gladius
 ENV GLADIUS_GO_PATH $GOPATH/src/$GLADIUS
 
