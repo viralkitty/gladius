@@ -163,9 +163,6 @@ func (b *Build) createContainer() error {
 			Entrypoint:   []string{"sh"},
 			Cmd:          []string{"-c", b.CloneCmd()},
 		},
-		HostConfig: &docker.HostConfig{
-			VolumesFrom: []string{"ssh"},
-		},
 	}
 	var err error
 	b.Container, err = dockerCli.CreateContainer(createOpts)
@@ -185,7 +182,7 @@ func (b *Build) startContainer() error {
 	b.log("Starting container")
 
 	err := dockerCli.StartContainer(b.Container.ID, &docker.HostConfig{
-		VolumesFrom: []string{"ssh"},
+		Binds: []string{"/root/.ssh:/root/.ssh"},
 	})
 
 	if err != nil {
