@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -11,16 +12,19 @@ type Routes struct {
 	Scheduler *Scheduler
 }
 
+func (r *Routes) Home(w http.ResponseWriter, req *http.Request) {
+	fmt.Fprintf(w, "<h1>Gladius</h1>")
+}
+
 func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
 	var (
 		err  error
 		body []byte
 	)
 
-	log.Printf("origin: %s", req.Header.Get("Origin"))
-	w.Header().Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 	switch req.Method {
 	case "OPTIONS":
