@@ -44,29 +44,29 @@ func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {
 
 func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
 	for _, offer := range offers {
-		go func() {
-			cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-				return res.GetName() == "cpus"
-			})
-			cpus := 0.0
-			for _, res := range cpuResources {
-				cpus += res.GetScalar().GetValue()
-			}
+		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
+			return res.GetName() == "cpus"
+		})
+		cpus := 0.0
+		for _, res := range cpuResources {
+			cpus += res.GetScalar().GetValue()
+		}
 
-			memResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-				return res.GetName() == "mem"
-			})
-			mems := 0.0
-			for _, res := range memResources {
-				mems += res.GetScalar().GetValue()
-			}
+		memResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
+			return res.GetName() == "mem"
+		})
+		mems := 0.0
+		for _, res := range memResources {
+			mems += res.GetScalar().GetValue()
+		}
 
-			log.Printf("Received Offer <%v> with cpus=%d mem=%d", offer.Id.GetValue(), cpus, mems)
+		log.Printf("Received Offer <%v> with cpus=%d mem=%d", offer.Id.GetValue(), cpus, mems)
 
-			//cpusLeft := cpus
-			//memsLeft := mems
+		cpusLeft := cpus
+		memsLeft := mems
+		tasksToLauch := []*mesos.TaskInfo{}
 
-			//for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft && len(build.Tasks) > 0 {
+		for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft {
 			task := <-tasks
 
 			// need build id because this is the docker image "tag"
@@ -100,14 +100,15 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 				},
 			}
 
+			tasksToLaunch = append(tasksToLaunch, taskInfo)
+
 			log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), offer.Id.GetValue())
 
-			//cpusLeft -= CPUS_PER_TASK
-			//memsLeft -= MEM_PER_TASK
+			cpusLeft -= CPUS_PER_TASK
+			memsLeft -= MEM_PER_TASK
+		}
 
-			driver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{taskInfo}, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
-			//}
-		}()
+		driver.LaunchTasks([]*mesos.OfferID{offer.Id}, tasksToLauch, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
 	}
 }
 
