@@ -283,6 +283,7 @@ func (b *Build) pushImage() error {
 	pushOpts := docker.PushImageOptions{
 		Name:         b.FullImgName(),
 		OutputStream: &buf,
+		Tag:          b.Id(),
 	}
 
 	authConfig := docker.AuthConfiguration{}
