@@ -66,10 +66,13 @@ func main() {
 	}
 
 	routes := &Routes{scheduler}
-	listenAt := fmt.Sprintf(":%s", os.Getenv("GLADIUS_HTTP_PORT"))
+	listenAt := fmt.Sprintf("%s:%s", os.Getenv("GLADIUS_TCP_ADDR"), os.Getenv("GLADIUS_HTTP_PORT"))
 
+	http.HandleFunc("/", routes.Home)
 	http.HandleFunc("/builds", routes.Builds)
-	go http.ListenAndServe(listenAt, nil)
+
+	go func() { log.Print(http.ListenAndServe(listenAt, nil)) }()
+
 	log.Printf("Listening at %s", listenAt)
 
 	if stat, err := driver.Run(); err != nil {
