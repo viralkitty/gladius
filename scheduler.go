@@ -11,7 +11,7 @@ import (
 
 const (
 	CPUS_PER_TASK = 1
-	MEM_PER_TASK  = 128
+	MEM_PER_TASK  = 2000
 )
 
 type Scheduler struct {
@@ -44,6 +44,8 @@ func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {
 
 func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
 	for _, offer := range offers {
+		task := <-tasks
+
 		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
 			return res.GetName() == "cpus"
 		})
@@ -64,11 +66,8 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 
 		cpusLeft := cpus
 		memsLeft := mems
-		tasksToLauch := []*mesos.TaskInfo{}
 
-		for CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft {
-			task := <-tasks
-
+		if CPUS_PER_TASK <= cpusLeft && MEM_PER_TASK <= memsLeft {
 			// need build id because this is the docker image "tag"
 			task.BuildId = task.Build.Id
 			taskJsonBytes, err := json.Marshal(task)
@@ -100,15 +99,10 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 				},
 			}
 
-			tasksToLaunch = append(tasksToLaunch, taskInfo)
-
 			log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), offer.Id.GetValue())
 
-			cpusLeft -= CPUS_PER_TASK
-			memsLeft -= MEM_PER_TASK
+			driver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{taskInfo}, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
 		}
-
-		driver.LaunchTasks([]*mesos.OfferID{offer.Id}, tasksToLauch, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
 	}
 }
 
@@ -126,7 +120,7 @@ func (sched *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos
 		if status.GetState() == mesos.TaskState_TASK_LOST ||
 			status.GetState() == mesos.TaskState_TASK_KILLED ||
 			status.GetState() == mesos.TaskState_TASK_FAILED {
-			//log.Printf("Aborting because task %v is in unexpected state %s with message %s", status.TaskId.GetValue(), status.State.String(), status.GetMessage())
+			log.Printf("Task %v is in unexpected state %s with message %s", status.TaskId.GetValue(), status.State.String(), status.GetMessage())
 			go func() { statusChan <- status }()
 			//driver.Abort()
 		}
