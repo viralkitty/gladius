@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
+
 	"github.com/fsouza/go-dockerclient"
 	"github.com/garyburd/redigo/redis"
 	mesos "github.com/mesos/mesos-go/mesosproto"
-	"log"
-	"math/rand"
-	"strconv"
-	"strings"
 )
 
 const (
@@ -181,8 +183,16 @@ func (b *Build) createContainer() error {
 func (b *Build) startContainer() error {
 	b.log("Starting container")
 
+	sshDir := "/root/.ssh/id_rsa"
+
+	if os.Getenv("SSH_KEY") != "" {
+		sshDir = os.Getenv("SSH_KEY")
+	}
+
 	err := dockerCli.StartContainer(b.Container.ID, &docker.HostConfig{
-		Binds: []string{"/root/.ssh:/root/.ssh"},
+		Binds: []string{
+			fmt.Sprintf("%s:/root/.ssh/id_rsa", sshDir),
+		},
 	})
 
 	if err != nil {

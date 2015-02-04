@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"log"
+
 	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
-	"log"
 )
 
 const (

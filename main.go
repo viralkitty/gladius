@@ -1,18 +1,20 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"log"
+	"math/rand"
+	"net/http"
+	"os"
+	"time"
+
 	"github.com/fsouza/go-dockerclient"
 	"github.com/garyburd/redigo/redis"
 	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
-	"log"
-	"math/rand"
-	"net/http"
-	"os"
-	"time"
 )
 
 const (
@@ -36,6 +38,7 @@ func init() {
 		log.Fatal("Failed to connect with Redis: %v", dockerCliErr)
 	}
 
+	flag.Parse()
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
