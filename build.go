@@ -66,8 +66,11 @@ func NewBuild(scheduler *Scheduler) *Build {
 func AllBuilds() []Build {
 	var builds []Build
 
+	conn := pool.Get()
 	prefix := "pugio:builds:"
-	keys, err := redis.Strings(redisCli.Do("KEYS", fmt.Sprintf("%s*", prefix)))
+	keys, err := redis.Strings(conn.Do("KEYS", fmt.Sprintf("%s*", prefix)))
+
+	defer conn.Close()
 
 	if err != nil {
 		log.Printf("Could not get keys: %s", err)
@@ -80,7 +83,7 @@ func AllBuilds() []Build {
 		var b *Build
 		var buildJsonBytes []byte
 
-		buildJsonBytes, err = redis.Bytes(redisCli.Do("GET", key))
+		buildJsonBytes, err = redis.Bytes(conn.Do("GET", key))
 
 		if err != nil {
 			log.Printf("Could not get key: %s", key)
@@ -148,7 +151,9 @@ func (b *Build) Build() {
 
 func (b *Build) log(msg string) {
 	log.Print(msg)
-	redisCli.Do("APPEND", b.RedisLogKey(), fmt.Sprintf("%s\n\n", msg))
+	conn := pool.Get()
+	defer conn.Close()
+	conn.Do("APPEND", b.RedisLogKey(), fmt.Sprintf("%s\n\n", msg))
 }
 
 func (b *Build) createContainer() error {
@@ -358,7 +363,10 @@ func (b *Build) Save() error {
 		return err
 	}
 
-	_, err = redisCli.Do("SET", b.RedisKey(), buildJson)
+	conn := pool.Get()
+	defer conn.Close()
+
+	_, err = conn.Do("SET", b.RedisKey(), buildJson)
 
 	if err != nil {
 		log.Printf("problem setting key: %v", err)
@@ -371,8 +379,11 @@ func (b *Build) Save() error {
 func (b *Build) setRedisExpiry() error {
 	b.log("Setting redis key expirations.")
 
-	redisCli.Do("EXPIRE", b.RedisKey(), 3600)
-	redisCli.Do("EXPIRE", b.RedisLogKey(), 3600)
+	conn := pool.Get()
+	defer conn.Close()
+
+	conn.Do("EXPIRE", b.RedisKey(), 3600)
+	conn.Do("EXPIRE", b.RedisLogKey(), 3600)
 
 	return nil
 }

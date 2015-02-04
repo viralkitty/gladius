@@ -21,18 +21,16 @@ const (
 	FRAMEWORK_NAME = "Gladius"
 )
 
+var pool *redis.Pool
 var master = os.Getenv("MESOS_MASTER")
 var execUri = os.Getenv("EXEC_URI")
-var redisCli, redisCliErr = redis.Dial("tcp", os.Getenv("REDIS_TCP_ADDR"))
 var dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
 var tasks = make(chan *Task)
 
 func init() {
-	log.Printf("Initializing the Example Scheduler...")
+	pool = newPool(os.Getenv("REDIS_TCP_ADDR"))
 
-	if redisCliErr != nil {
-		log.Fatal("Failed to connect with Redis: %v", redisCliErr)
-	}
+	log.Printf("Initializing the Example Scheduler...")
 
 	if dockerCliErr != nil {
 		log.Fatal("Failed to connect with Redis: %v", dockerCliErr)
@@ -80,5 +78,23 @@ func main() {
 
 	if stat, err := driver.Run(); err != nil {
 		log.Printf("Framework stopped with status %s and error: %s\n", stat.String(), err.Error())
+	}
+}
+
+func newPool(server string) *redis.Pool {
+	return &redis.Pool{
+		MaxIdle:     3,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", server)
+			if err != nil {
+				return nil, err
+			}
+			return c, err
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
 	}
 }
