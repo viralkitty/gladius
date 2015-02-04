@@ -97,6 +97,14 @@ func AllBuilds() []Build {
 			return nil
 		}
 
+		var logs []byte
+		logs, err = redis.Bytes(conn.Do("GET", b.RedisLogKey()))
+
+		if err != nil {
+			log.Printf("Could not get log key: %s because %v", b.RedisLogKey(), err)
+		}
+
+		b.Log = string(logs)
 		builds = append(builds, *b)
 	}
 
@@ -151,9 +159,15 @@ func (b *Build) Build() {
 
 func (b *Build) log(msg string) {
 	log.Print(msg)
+
 	conn := pool.Get()
+	_, err := conn.Do("APPEND", b.RedisLogKey(), fmt.Sprintf("%s\n\n", msg))
+
 	defer conn.Close()
-	conn.Do("APPEND", b.RedisLogKey(), fmt.Sprintf("%s\n\n", msg))
+
+	if err != nil {
+		log.Printf("Could not append to log key: %v", err)
+	}
 }
 
 func (b *Build) createContainer() error {
@@ -322,9 +336,11 @@ func (b *Build) pushImage() error {
 
 func (b *Build) launchTasks() error {
 	for _, task := range b.Tasks {
-		log.Printf("throwing task into chan: %+v", task)
-		task.Build = b
-		tasks <- task
+		go func(t *Task) {
+			log.Printf("throwing task into chan: %+v", t)
+			t.Build = b
+			tasks <- t
+		}(task)
 	}
 
 	for i := 0; i < len(b.Tasks); i++ {

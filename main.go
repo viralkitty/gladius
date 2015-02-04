@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/fsouza/go-dockerclient"
@@ -24,6 +25,8 @@ const (
 var pool *redis.Pool
 var master = os.Getenv("MESOS_MASTER")
 var execUri = os.Getenv("EXEC_URI")
+var cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
+var memPerTask, memParseErr = strconv.ParseFloat(os.Getenv("MEM_PER_TASK"), 64)
 var dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
 var tasks = make(chan *Task)
 
@@ -34,6 +37,14 @@ func init() {
 
 	if dockerCliErr != nil {
 		log.Fatal("Failed to connect with Redis: %v", dockerCliErr)
+	}
+
+	if cpusParseErr != nil {
+		log.Fatal("Failed to parse CPUS per task: %v", cpusParseErr)
+	}
+
+	if memParseErr != nil {
+		log.Fatal("Failed to parse mem per task: %v", memParseErr)
 	}
 
 	flag.Parse()
