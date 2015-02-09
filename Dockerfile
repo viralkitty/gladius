@@ -7,9 +7,9 @@ ENV GOPATH /go
 ENV GOLANG_VERSION 1.4
 ENV GOLANG_URL https://golang.org/dl/go$GOLANG_VERSION.src.tar.gz
 ENV PATH /usr/src/go/bin:/go/bin:$PATH
-ENV MESOS github.com/razic/mesos-go
+ENV MESOS github.com/mesos/mesos-go
 ENV MESOS_GIT_URL https://$MESOS.git
-ENV MESOS_GO_PATH $GOPATH/src/github.com/mesos/mesos-go
+ENV MESOS_GO_PATH $GOPATH/src/$MESOS
 ENV GLADIUS git.corp.adobe.com/typekit/gladius
 ENV GLADIUS_GO_PATH $GOPATH/src/$GLADIUS
 
