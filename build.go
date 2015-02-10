@@ -41,23 +41,23 @@ func NewBuild(scheduler *Scheduler) *Build {
 		Id:        strconv.Itoa(rand.Int()),
 		State:     "running",
 		Tasks: []*Task{
-			//NewTask("rspec spec/api --no-color"),
-			//NewTask("rspec spec/config --no-color"),
+			NewTask("rspec spec/api --no-color"),
+			NewTask("rspec spec/config --no-color"),
 			NewTask("rspec spec/controllers --no-color"),
-			//NewTask("rspec spec/helpers --no-color"),
-			//NewTask("rspec spec/integration --no-color"),
-			//NewTask("rspec spec/lib --no-color"),
-			//NewTask("rspec spec/mails --no-color"),
-			//NewTask("rspec spec/racks --no-color"),
-			//NewTask("rspec spec/requests --no-color"),
-			//NewTask("rspec spec/routing --no-color"),
-			//NewTask("cucumber --profile=default --no-color --format=progress features/accounts"),
-			//NewTask("cucumber --profile=default --no-color --format=progress features/auth"),
-			//NewTask("cucumber --profile=default --no-color --format=progress features/api"),
-			//NewTask("cucumber --profile=default --no-color --format=progress features/web"),
-			//NewTask("cucumber --profile=default --no-color --format=progress features/ccm"),
-			//NewTask("cucumber --profile=licensing --no-color --format=progress features/licensing"),
-			//NewTask("cucumber --profile=mails --no-color --format=progress features/mails"),
+			NewTask("rspec spec/helpers --no-color"),
+			NewTask("rspec spec/integration --no-color"),
+			NewTask("rspec spec/lib --no-color"),
+			NewTask("rspec spec/mails --no-color"),
+			NewTask("rspec spec/racks --no-color"),
+			NewTask("rspec spec/requests --no-color"),
+			NewTask("rspec spec/routing --no-color"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/accounts"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/auth"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/api"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/web"),
+			NewTask("cucumber --profile=default --no-color --format=progress features/ccm"),
+			NewTask("cucumber --profile=licensing --no-color --format=progress features/licensing"),
+			NewTask("cucumber --profile=mails --no-color --format=progress features/mails"),
 		},
 		TaskStatusesChan: make(chan *mesos.TaskStatus),
 	}
@@ -136,11 +136,11 @@ func (b *Build) Build() {
 		b.Save()
 		return
 	}
-	//if b.pushImage() != nil {
-	//	b.State = "failed"
-	//	b.Save()
-	//	return
-	//}
+	if b.pushImage() != nil {
+		b.State = "failed"
+		b.Save()
+		return
+	}
 	if b.launchTasks() != nil {
 		b.State = "failed"
 		b.Save()
