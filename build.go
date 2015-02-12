@@ -83,7 +83,7 @@ func AllBuilds() []Build {
 		var b *Build
 		var buildJsonBytes []byte
 
-		buildJsonBytes, err = redis.Bytes(conn.Do("time", key))
+		buildJsonBytes, err = redis.Bytes(conn.Do("GET", key))
 
 		if err != nil {
 			log.Printf("Could not get key: %s", key)
