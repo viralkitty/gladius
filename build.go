@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fsouza/go-dockerclient"
 	"github.com/garyburd/redigo/redis"
@@ -39,7 +40,6 @@ func NewBuild(scheduler *Scheduler) *Build {
 	return &Build{
 		Scheduler: scheduler,
 		Id:        strconv.Itoa(rand.Int()),
-		State:     "running",
 		Tasks: []*Task{
 			NewTask("rspec spec/api --no-color"),
 			NewTask("rspec spec/config --no-color"),
@@ -83,7 +83,7 @@ func AllBuilds() []Build {
 		var b *Build
 		var buildJsonBytes []byte
 
-		buildJsonBytes, err = redis.Bytes(conn.Do("GET", key))
+		buildJsonBytes, err = redis.Bytes(conn.Do("time", key))
 
 		if err != nil {
 			log.Printf("Could not get key: %s", key)
@@ -104,46 +104,67 @@ func AllBuilds() []Build {
 }
 
 func (b *Build) Build() {
+	var err error
+
 	b.Save()
 
-	if b.pullImage() != nil {
-		b.State = "failed"
-		b.Save()
+	err = b.pullImage()
+
+	if err != nil {
+		b.SaveAndHandleError(err)
 		return
 	}
-	if b.createContainer() != nil {
-		b.State = "failed"
-		b.Save()
+
+	err = b.createContainer()
+
+	if err != nil {
+		b.SaveAndHandleError(err)
 		return
 	}
-	if b.startContainer() != nil {
-		b.State = "failed"
-		b.Save()
+
+	for {
+		err = b.startContainer()
+
+		if err != nil {
+			b.SaveAndHandleError(err)
+			continue
+		}
+
+		err = b.waitContainer()
+
+		if err != nil {
+			b.SaveAndHandleError(err)
+			continue
+		}
+
+		break
+	}
+
+	err = b.commitContainer()
+
+	if err != nil {
+		b.SaveAndHandleError(err)
 		return
 	}
-	if b.waitContainer() != nil {
-		b.State = "failed"
-		b.Save()
+
+	err = b.removeContainer()
+
+	if err != nil {
+		b.SaveAndHandleError(err)
 		return
 	}
-	if b.commitContainer() != nil {
-		b.State = "failed"
-		b.Save()
+
+	err = b.pushImage()
+
+	if err != nil {
+		b.SaveAndHandleError(err)
 		return
 	}
-	if b.removeContainer() != nil {
-		b.State = "failed"
-		b.Save()
-		return
-	}
-	if b.pushImage() != nil {
-		b.State = "failed"
-		b.Save()
-		return
-	}
-	if b.launchTasks() != nil {
-		b.State = "failed"
-		b.Save()
+
+	err = b.launchTasks()
+
+	if err != nil {
+		b.SaveAndHandleError(err)
 		return
 	}
 }
@@ -223,22 +244,31 @@ func (b *Build) waitContainer() error {
 }
 
 func (b *Build) pullImage() error {
-	log.Printf("Pulling typekit bundler")
-
+	done := make(chan bool)
+	timeout := time.After(5 * time.Minute)
+	auth := docker.AuthConfiguration{}
 	opts := docker.PullImageOptions{
 		Repository: baseImage,
 		Registry:   dockerRegistry,
 	}
 
-	err := dockerCli.PullImage(opts, docker.AuthConfiguration{})
+	go func() {
+		for {
+			if dockerCli.PullImage(opts, auth) != nil {
+				continue
+			}
 
-	if err != nil {
-		log.Printf("Could not pull bundler typekit image")
-		log.Printf(err.Error())
-		return err
+			done <- true
+			break
+		}
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-timeout:
+		return errors.New("Could not pull bundler typekit image")
 	}
-
-	return nil
 }
 
 func (b *Build) commitContainer() error {
@@ -281,33 +311,40 @@ func (b *Build) removeContainer() error {
 }
 
 func (b *Build) pushImage() error {
-	log.Printf("Pushing image")
-
 	var buf bytes.Buffer
 
-	pushOpts := docker.PushImageOptions{
+	successMsg := "Image successfully pushed"
+	errorMsg := "Timed out pushing image"
+	done := make(chan bool)
+	timeout := time.After(5 * time.Minute)
+	auth := docker.AuthConfiguration{}
+	opts := docker.PushImageOptions{
 		Name:         b.FullImgName(),
 		OutputStream: &buf,
 		Tag:          b.Id,
 	}
 
-	authConfig := docker.AuthConfiguration{}
+	go func() {
+		for {
+			if dockerCli.PushImage(opts, auth) != nil {
+				continue
+			}
 
-	err := dockerCli.PushImage(pushOpts, authConfig)
-	msg := "Could not push the image"
+			if strings.Contains(buf.String(), successMsg) != true {
+				continue
+			}
 
-	if err != nil {
-		log.Printf(msg)
-		log.Printf(err.Error())
-		return err
+			done <- true
+			break
+		}
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-timeout:
+		return errors.New(errorMsg)
 	}
-
-	if strings.Contains(buf.String(), "Image successfully pushed") != true {
-		log.Printf(msg)
-		return errors.New(msg)
-	}
-
-	return nil
 }
 
 func (b *Build) launchTasks() error {
@@ -383,6 +420,11 @@ func (b *Build) taskStatusLoop() {
 
 }
 
+func (b *Build) SaveAndHandleError(err error) {
+	log.Print(err)
+	b.Save()
+}
+
 func (b *Build) RedisKey() string {
 	return fmt.Sprintf("pugio:builds:%s", b.Id)
 }
@@ -400,5 +442,5 @@ func (b *Build) FullImgName() string {
 }
 
 func (b *Build) CloneCmd() string {
-	return fmt.Sprintf("(ssh -o StrictHostKeyChecking=no git@git.corp.adobe.com || true) && git clone --depth 1 --branch %s %s && cd %s && bundle install --jobs 4 --deployment", b.Branch, b.GitRepo(), b.App)
+	return fmt.Sprintf("(ssh -o StrictHostKeyChecking=no git@git.corp.adobe.com || true) && rm -rf %s && git clone --depth 1 --branch %s %s && cd %s && bundle install --jobs 4 --deployment", b.App, b.Branch, b.GitRepo(), b.App)
 }
