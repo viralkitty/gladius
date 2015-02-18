@@ -40,64 +40,67 @@ func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {
 
 func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
 	for _, offer := range offers {
-		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-			return res.GetName() == "cpus"
-		})
-		cpus := 0.0
-		for _, res := range cpuResources {
-			cpus += res.GetScalar().GetValue()
-		}
-
-		memResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-			return res.GetName() == "mem"
-		})
-		mems := 0.0
-		for _, res := range memResources {
-			mems += res.GetScalar().GetValue()
-		}
-
-		log.Printf("Received Offer <%v> with cpus=%d mem=%d", offer.Id.GetValue(), cpus, mems)
-
-		cpusLeft := cpus
-		memsLeft := mems
-		task := <-tasks
-
-		log.Printf("got task: %+v", task)
-
-		if cpusPerTask <= cpusLeft && memPerTask <= memsLeft {
-			log.Printf("about to marshal task: %+v", task)
-
-			taskJsonBytes, err := json.Marshal(task)
-
-			if err != nil {
-				log.Printf("Could not marshal task")
-				return
+		go func(o *mesos.Offer) {
+			cpuResources := util.FilterResources(o.Resources, func(res *mesos.Resource) bool {
+				return res.GetName() == "cpus"
+			})
+			cpus := 0.0
+			for _, res := range cpuResources {
+				cpus += res.GetScalar().GetValue()
 			}
 
-			sched.tasksLaunched++
-
-			taskId := &mesos.TaskID{
-				Value: proto.String(task.Id),
+			memResources := util.FilterResources(o.Resources, func(res *mesos.Resource) bool {
+				return res.GetName() == "mem"
+			})
+			mems := 0.0
+			for _, res := range memResources {
+				mems += res.GetScalar().GetValue()
 			}
 
-			sched.taskStatusesChans[task.Id] = task.Build.TaskStatusesChan
+			log.Printf("Received Offer <%v> with cpus=%d mem=%d", o.Id.GetValue(), cpus, mems)
 
-			taskInfo := &mesos.TaskInfo{
-				Name:     proto.String(task.Id),
-				TaskId:   taskId,
-				SlaveId:  offer.SlaveId,
-				Data:     taskJsonBytes,
-				Executor: sched.executor,
-				Resources: []*mesos.Resource{
-					util.NewScalarResource("cpus", cpusPerTask),
-					util.NewScalarResource("mem", memPerTask),
-				},
+			cpusLeft := cpus
+			memsLeft := mems
+			task := <-tasks
+
+			log.Printf("got task: %+v", task)
+
+			if cpusPerTask <= cpusLeft && memPerTask <= memsLeft {
+				log.Printf("about to marshal task: %+v", task)
+
+				taskJsonBytes, err := json.Marshal(task)
+
+				if err != nil {
+					log.Printf("Could not marshal task")
+					return
+				}
+
+				sched.tasksLaunched++
+
+				taskId := &mesos.TaskID{
+					Value: proto.String(task.Id),
+				}
+
+				sched.taskStatusesChans[task.Id] = task.Build.TaskStatusesChan
+
+				taskInfo := &mesos.TaskInfo{
+					Name:     proto.String(task.Id),
+					TaskId:   taskId,
+					SlaveId:  o.SlaveId,
+					Data:     taskJsonBytes,
+					Executor: sched.executor,
+					Resources: []*mesos.Resource{
+						util.NewScalarResource("cpus", cpusPerTask),
+						util.NewScalarResource("mem", memPerTask),
+					},
+				}
+
+				log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), o.Id.GetValue())
+
+				driver.LaunchTasks([]*mesos.OfferID{o.Id}, []*mesos.TaskInfo{taskInfo}, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
 			}
+		}(offer)
 
-			log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), offer.Id.GetValue())
-
-			driver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{taskInfo}, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
-		}
 	}
 }
 
