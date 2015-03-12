@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -24,6 +25,8 @@ const (
 var pool *redis.Pool
 var master = os.Getenv("MESOS_MASTER")
 var execUri = os.Getenv("EXEC_URI")
+var schedIP = net.ParseIP(os.Getenv("MESOS_SCHEDULER_IP"))
+var schedPort, schedPortParseErr = strconv.Atoi(os.Getenv("MESOS_SCHEDULER_PORT"))
 var cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
 var memPerTask, memParseErr = strconv.ParseFloat(os.Getenv("MEM_PER_TASK"), 64)
 var dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
@@ -46,6 +49,10 @@ func init() {
 		log.Fatal("Failed to parse mem per task: %v", memParseErr)
 	}
 
+	if schedPortParseErr != nil {
+		log.Fatal("Failed to parse scheduler ip: %v", schedPortParseErr)
+	}
+
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
@@ -64,9 +71,11 @@ func main() {
 	}
 
 	schedConfig := sched.DriverConfig{
-		Scheduler: scheduler,
-		Framework: fwinfo,
-		Master:    master,
+		Scheduler:      scheduler,
+		Framework:      fwinfo,
+		Master:         master,
+		BindingAddress: schedIP,
+		BindingPort:    uint16(schedPort),
 	}
 	driver, err := sched.NewMesosSchedulerDriver(schedConfig)
 
