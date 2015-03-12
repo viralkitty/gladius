@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -47,7 +46,6 @@ func init() {
 		log.Fatal("Failed to parse mem per task: %v", memParseErr)
 	}
 
-	flag.Parse()
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
@@ -58,20 +56,19 @@ func main() {
 		Command:    util.NewCommandInfo(execUri),
 	}
 
-	// the framework
+	scheduler := NewScheduler(exec)
+
 	fwinfo := &mesos.FrameworkInfo{
-		User: proto.String(""), // Mesos-go will fill in user.
+		User: proto.String(""),
 		Name: proto.String(FRAMEWORK_NAME),
 	}
 
-	scheduler := NewScheduler(exec)
-
-	driver, err := sched.NewMesosSchedulerDriver(
-		scheduler,
-		fwinfo,
-		master,
-		nil,
-	)
+	schedConfig := sched.DriverConfig{
+		Scheduler: scheduler,
+		Framework: fwinfo,
+		Master:    master,
+	}
+	driver, err := sched.NewMesosSchedulerDriver(schedConfig)
 
 	if err != nil {
 		log.Printf("Unable to create a SchedulerDriver ", err.Error())

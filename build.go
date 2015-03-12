@@ -188,12 +188,9 @@ func (b *Build) createContainer() error {
 	b.Container, err = dockerCli.CreateContainer(createOpts)
 
 	if err != nil {
-		log.Printf("Could not create container")
-		log.Printf(err.Error())
+		log.Printf("Could not create container from image %s: %s", baseImage, err.Error())
 		return err
 	}
-
-	log.Printf("%+v", b.Container)
 
 	return nil
 }
@@ -255,6 +252,8 @@ func (b *Build) pullImage() error {
 	go func() {
 		for {
 			if dockerCli.PullImage(opts, auth) != nil {
+				log.Printf("Failed to pull image. Retrying.")
+
 				continue
 			}
 
