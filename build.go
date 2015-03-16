@@ -251,8 +251,11 @@ func (b *Build) pullImage() error {
 
 	go func() {
 		for {
-			if dockerCli.PullImage(opts, auth) != nil {
-				log.Printf("Failed to pull image. Retrying.")
+			err := dockerCli.PullImage(opts, auth)
+
+			if err != nil {
+				log.Printf("Failed to pull image %s: %s", baseImage, err.Error())
+				log.Printf("Attempting to repull image %s: %s", baseImage, err.Error())
 
 				continue
 			}
