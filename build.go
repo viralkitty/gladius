@@ -459,7 +459,6 @@ func (b *Build) CloneCmd() string {
 }
 
 func (b *Build) removeImage() error {
-
 	log.Printf("Attempting to remove image: %s", b.Image.ID)
 
 	err := dockerCli.RemoveImage(b.Image.ID)
