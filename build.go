@@ -29,6 +29,7 @@ type Build struct {
 	Log              string                 `json:"log,omitempty"`
 	State            string                 `json:"state,omitempty"`
 	Container        *docker.Container      `json:"-"`
+	Image            *docker.Image          `json:"-"`
 	Scheduler        *Scheduler             `json:"-"`
 	TaskStatusesChan chan *mesos.TaskStatus `json:"-"`
 	Tasks            []*Task                `json:"tasks,omitempty"`
@@ -167,6 +168,14 @@ func (b *Build) Build() {
 		b.SaveAndHandleError(err)
 		return
 	}
+
+	err = b.removeImage()
+
+	if err != nil {
+		b.SaveAndHandleError(err)
+		return
+	}
+
 }
 
 func (b *Build) createContainer() error {
@@ -274,6 +283,8 @@ func (b *Build) pullImage() error {
 }
 
 func (b *Build) commitContainer() error {
+	var err error
+
 	log.Printf("Commiting container")
 
 	commitOpts := docker.CommitContainerOptions{
@@ -282,7 +293,7 @@ func (b *Build) commitContainer() error {
 		Tag:        b.Id,
 	}
 
-	_, err := dockerCli.CommitContainer(commitOpts)
+	b.Image, err = dockerCli.CommitContainer(commitOpts)
 
 	if err != nil {
 		log.Printf("Could not commit container")
@@ -445,4 +456,20 @@ func (b *Build) FullImgName() string {
 
 func (b *Build) CloneCmd() string {
 	return fmt.Sprintf("(ssh -o StrictHostKeyChecking=no git@git.corp.adobe.com || true) && rm -rf %s && git clone --depth 1 --branch %s %s && cd %s && bundle install --jobs 4 --deployment", b.App, b.Branch, b.GitRepo(), b.App)
+}
+
+func (b *Build) removeImage() error {
+
+	log.Printf("Attempting to remove image: %s", b.Image.ID)
+
+	err := dockerCli.RemoveImage(b.Image.ID)
+
+	if err != nil {
+		log.Printf("Couldn't remove image '%s': %s", b.Image.ID, err)
+		return err
+	}
+
+	log.Printf("Removed image: %s", b.Image.ID)
+
+	return nil
 }
