@@ -62,6 +62,7 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 			cpusLeft := cpus
 			memsLeft := mems
 			task := <-tasks
+			filters := &mesos.Filters{RefuseSeconds: proto.Float64(1)}
 
 			log.Printf("got task: %+v", task)
 
@@ -97,7 +98,13 @@ func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*m
 
 				log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), o.Id.GetValue())
 
-				driver.LaunchTasks([]*mesos.OfferID{o.Id}, []*mesos.TaskInfo{taskInfo}, &mesos.Filters{RefuseSeconds: proto.Float64(1)})
+				driver.LaunchTasks([]*mesos.OfferID{o.Id}, []*mesos.TaskInfo{taskInfo}, filters)
+			} else {
+				log.Printf("Declining offer: %s", o.Id)
+				driver.DeclineOffer(o.Id, filters)
+				go func() {
+					tasks <- task
+				}()
 			}
 		}(offer)
 
