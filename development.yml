@@ -1,0 +1,32 @@
+gladius:
+  extends:
+    file: common.yml
+    service: gladius
+  build: .
+  environment:
+    - SSH_KEY=/Users/razic/.ssh/id_gitcorp
+    - CPUS_PER_TASK=1
+    - MEMORY_PER_TASK=500
+  links:
+    - "redis:redis"
+    - "master:master"
+master:
+  extends:
+    file: common.yml
+    service: master
+  links:
+    - zk
+slave:
+  extends:
+    file: common.yml
+    service: slave
+  links:
+    - zk
+redis:
+  extends:
+    file: common.yml
+    service: redis
+zk:
+  extends:
+    file: common.yml
+    service: zk

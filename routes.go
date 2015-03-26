@@ -2,18 +2,16 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 )
 
 type Routes struct {
-	Scheduler *Scheduler
 }
 
-func (r *Routes) Home(w http.ResponseWriter, req *http.Request) {
-	fmt.Fprintf(w, "<h1>Gladius</h1>")
+func NewRoutes() *Routes {
+	return &Routes{}
 }
 
 func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
@@ -48,7 +46,7 @@ func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
 
 		log.Printf("POST /builds")
 
-		b := NewBuild(r.Scheduler)
+		b := NewBuild()
 		body, err = ioutil.ReadAll(req.Body)
 
 		if err != nil {

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fsouza/go-dockerclient"
-	"github.com/garyburd/redigo/redis"
+	docker "github.com/fsouza/go-dockerclient"
+	redis "github.com/garyburd/redigo/redis"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 )
 
@@ -35,12 +35,9 @@ type Build struct {
 	Tasks            []*Task                `json:"tasks,omitempty"`
 }
 
-func NewBuild(scheduler *Scheduler) *Build {
-	// TODO: Dynamically generate list of tasks
-
+func NewBuild() *Build {
 	return &Build{
-		Scheduler: scheduler,
-		Id:        strconv.Itoa(rand.Int()),
+		Id: strconv.Itoa(rand.Int()),
 		Tasks: []*Task{
 			NewTask("rspec spec/api --no-color"),
 			NewTask("rspec spec/config --no-color"),
@@ -65,11 +62,11 @@ func NewBuild(scheduler *Scheduler) *Build {
 }
 
 func AllBuilds() []Build {
-	var builds []Build
-
-	conn := pool.Get()
+	conn := redisPool.Get()
 	prefix := "pugio:builds:"
-	keys, err := redis.Strings(conn.Do("KEYS", fmt.Sprintf("%s*", prefix)))
+	keysReply, err := conn.Do("KEYS", fmt.Sprintf("%s*", prefix))
+	keys, err := redis.Strings(keysReply, err)
+	builds := []Build{}
 
 	defer conn.Close()
 
@@ -79,22 +76,20 @@ func AllBuilds() []Build {
 	}
 
 	for _, key := range keys {
-		log.Printf("found key: %s", key)
-
 		var b *Build
-		var buildJsonBytes []byte
 
-		buildJsonBytes, err = redis.Bytes(conn.Do("GET", key))
+		buildReply, err := conn.Do("GET", key)
+		buildJsonBytes, err := redis.Bytes(buildReply, err)
 
 		if err != nil {
-			log.Printf("Could not get key: %s", key)
+			fmt.Sprintf("Could not get key: %s", key)
 			continue
 		}
 
 		err = json.Unmarshal(buildJsonBytes, &b)
 
 		if err != nil {
-			log.Printf("Could not unmarshal object: %v", err)
+			fmt.Sprintf("Could not unmarshal object: %v", err)
 			return nil
 		}
 
@@ -107,60 +102,60 @@ func AllBuilds() []Build {
 func (b *Build) Build() {
 	var err error
 
-	b.Save()
-
-	err = b.pullImage()
-
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
-
-	err = b.createContainer()
-
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
-
-	for {
-		err = b.startContainer()
-
-		if err != nil {
-			b.SaveAndHandleError(err)
-			continue
-		}
-
-		err = b.waitContainer()
-
-		if err != nil {
-			b.SaveAndHandleError(err)
-			continue
-		}
-
-		break
-	}
-
-	err = b.commitContainer()
-
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
-
-	err = b.removeContainer()
-
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
-
-	err = b.pushImage()
-
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
+	//	b.Save()
+	//
+	//	err = b.pullImage()
+	//
+	//	if err != nil {
+	//		b.SaveAndHandleError(err)
+	//		return
+	//	}
+	//
+	//	err = b.createContainer()
+	//
+	//	if err != nil {
+	//		b.SaveAndHandleError(err)
+	//		return
+	//	}
+	//
+	//	for {
+	//		err = b.startContainer()
+	//
+	//		if err != nil {
+	//			b.SaveAndHandleError(err)
+	//			continue
+	//		}
+	//
+	//		err = b.waitContainer()
+	//
+	//		if err != nil {
+	//			b.SaveAndHandleError(err)
+	//			continue
+	//		}
+	//
+	//		break
+	//	}
+	//
+	//	err = b.commitContainer()
+	//
+	//	if err != nil {
+	//		b.SaveAndHandleError(err)
+	//		return
+	//	}
+	//
+	//	err = b.removeContainer()
+	//
+	//	if err != nil {
+	//		b.SaveAndHandleError(err)
+	//		return
+	//	}
+	//
+	//	err = b.pushImage()
+	//
+	//	if err != nil {
+	//		b.SaveAndHandleError(err)
+	//		return
+	//	}
 
 	err = b.launchTasks()
 
@@ -169,17 +164,17 @@ func (b *Build) Build() {
 		return
 	}
 
-	err = b.removeImage()
+	//err = b.removeImage()
 
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
+	//if err != nil {
+	//	b.SaveAndHandleError(err)
+	//	return
+	//}
 
 }
 
 func (b *Build) createContainer() error {
-	log.Printf("Creating container")
+	b.log("Creating container")
 
 	createOpts := docker.CreateContainerOptions{
 		Config: &docker.Config{
@@ -197,7 +192,7 @@ func (b *Build) createContainer() error {
 	b.Container, err = dockerCli.CreateContainer(createOpts)
 
 	if err != nil {
-		log.Printf("Could not create container from image %s: %s", baseImage, err.Error())
+		fmt.Sprintf("Could not create container from image %s: %s", baseImage, err.Error())
 		return err
 	}
 
@@ -205,7 +200,7 @@ func (b *Build) createContainer() error {
 }
 
 func (b *Build) startContainer() error {
-	log.Printf("Starting container")
+	b.log("Starting container")
 
 	sshKey := "/root/.ssh/id_rsa"
 
@@ -220,8 +215,8 @@ func (b *Build) startContainer() error {
 	})
 
 	if err != nil {
-		log.Printf("Could not start container")
-		log.Printf(err.Error())
+		b.log("Could not start container: %s", err)
+
 		return err
 	}
 
@@ -229,20 +224,21 @@ func (b *Build) startContainer() error {
 }
 
 func (b *Build) waitContainer() error {
-	log.Printf("Waiting for container")
+	b.log("Waiting for container")
 
 	status, err := dockerCli.WaitContainer(b.Container.ID)
 
 	if err != nil {
-		log.Printf("Could not wait for container")
-		log.Printf(err.Error())
+		b.log("Could not wait for container: %s", err)
+
 		return err
 	}
 
 	if status != 0 {
-		msg := "Clone or bundle failed"
+		msg := fmt.Sprintf("Clone or bundle failed: %s", err)
 
-		log.Printf(msg)
+		b.log(msg)
+
 		return errors.New(msg)
 	}
 
@@ -257,14 +253,17 @@ func (b *Build) pullImage() error {
 		Repository: baseImage,
 		Registry:   dockerRegistry,
 	}
+	maxRetries := 20
+	pullRetryInterval := 1 * time.Minute
 
 	go func() {
-		for {
+		for retries := 0; retries < maxRetries; retries++ {
 			err := dockerCli.PullImage(opts, auth)
 
 			if err != nil {
 				log.Printf("Failed to pull image %s: %s", baseImage, err.Error())
 				log.Printf("Attempting to repull image %s: %s", baseImage, err.Error())
+				time.Sleep(pullRetryInterval)
 
 				continue
 			}
@@ -285,7 +284,7 @@ func (b *Build) pullImage() error {
 func (b *Build) commitContainer() error {
 	var err error
 
-	log.Printf("Commiting container")
+	b.log("Commiting container")
 
 	commitOpts := docker.CommitContainerOptions{
 		Container:  b.Container.ID,
@@ -296,8 +295,8 @@ func (b *Build) commitContainer() error {
 	b.Image, err = dockerCli.CommitContainer(commitOpts)
 
 	if err != nil {
-		log.Printf("Could not commit container")
-		log.Printf(err.Error())
+		b.log("Could not commit container: %s", err)
+
 		return err
 	}
 
@@ -305,7 +304,7 @@ func (b *Build) commitContainer() error {
 }
 
 func (b *Build) removeContainer() error {
-	log.Printf("Removing container")
+	b.log("Removing container")
 
 	removeOpts := docker.RemoveContainerOptions{
 		ID:    b.Container.ID,
@@ -315,8 +314,8 @@ func (b *Build) removeContainer() error {
 	err := dockerCli.RemoveContainer(removeOpts)
 
 	if err != nil {
-		log.Printf("Could not remove the container")
-		log.Printf(err.Error())
+		b.log("Could not remove the container: %s", err)
+
 		return err
 	}
 
@@ -365,7 +364,7 @@ func (b *Build) launchTasks() error {
 
 	for _, task := range b.Tasks {
 		go func(t *Task) {
-			log.Printf("throwing task into chan: %+v", t)
+			fmt.Sprintf("throwing task into chan: %+v", t)
 			t.Build = b
 			t.BuildId = b.Id
 			tasks <- t
@@ -376,22 +375,25 @@ func (b *Build) launchTasks() error {
 }
 
 func (b *Build) Save() error {
-	log.Printf("Persisting in Redis")
-
+	key := b.RedisKey()
+	conn := redisPool.Get()
 	buildJson, err := json.Marshal(b)
 
+	defer conn.Close()
+
+	b.log("Saving")
+
 	if err != nil {
-		log.Printf("json error: %+v", err)
+		b.log("Failed to marshal as JSON: %s", err)
+
 		return err
 	}
 
-	conn := pool.Get()
-	defer conn.Close()
-
-	_, err = conn.Do("SET", b.RedisKey(), buildJson)
+	_, err = conn.Do("SET", key, buildJson)
 
 	if err != nil {
-		log.Printf("problem setting key: %v", err)
+		b.log("Failed to set key %s: %v", key, err.Error())
+
 		return err
 	}
 
@@ -399,13 +401,17 @@ func (b *Build) Save() error {
 }
 
 func (b *Build) taskStatusLoop() {
+	b.log("Entering task status loop")
+
 	for finishedTasks := 0; finishedTasks < len(b.Tasks); {
+		b.log("Began iteration %d in task status loop", finishedTasks)
+
 		select {
 		case taskStatus := <-b.TaskStatusesChan:
 			state := taskStatus.GetState()
 			taskId := taskStatus.TaskId.GetValue()
 
-			log.Printf("Task %s is in the %s state", taskId, state)
+			fmt.Sprintf("Task %s is in the %s state", taskId, state)
 
 			// Loops through the build tasks to find the one
 			// matching the received task status, so it can update
@@ -434,7 +440,7 @@ func (b *Build) taskStatusLoop() {
 }
 
 func (b *Build) SaveAndHandleError(err error) {
-	log.Print(err)
+	b.log(err.Error())
 	b.Save()
 }
 
@@ -459,16 +465,27 @@ func (b *Build) CloneCmd() string {
 }
 
 func (b *Build) removeImage() error {
-	log.Printf("Attempting to remove image: %s", b.Image.ID)
+	fmt.Sprintf("Attempting to remove image: %s", b.Image.ID)
 
 	err := dockerCli.RemoveImage(b.Image.ID)
 
 	if err != nil {
-		log.Printf("Couldn't remove image '%s': %s", b.Image.ID, err)
+		fmt.Sprintf("Couldn't remove image '%s': %s", b.Image.ID, err)
 		return err
 	}
 
-	log.Printf("Removed image: %s", b.Image.ID)
+	fmt.Sprintf("Removed image: %s", b.Image.ID)
 
 	return nil
+}
+
+func (b *Build) log(msg string, args ...interface{}) {
+	var buffer bytes.Buffer
+
+	prefix := fmt.Sprintf("[%s] ", b.Id)
+
+	buffer.WriteString(prefix)
+	buffer.WriteString(fmt.Sprintf(msg, args...))
+
+	log.Printf(buffer.String())
 }
