@@ -6,7 +6,7 @@ gladius:
   environment:
     - SSH_KEY=/Users/razic/.ssh/id_gitcorp
     - CPUS_PER_TASK=1
-    - MEMORY_PER_TASK=500
+    - MEMORY_PER_TASK=100
   links:
     - "redis:redis"
     - "master:master"
