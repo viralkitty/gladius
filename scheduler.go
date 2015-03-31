@@ -122,59 +122,6 @@ func (s *Scheduler) launchTaskWithOffer(task *Task, offer *mesos.Offer) {
 	schedulerDriver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{taskInfo}, filters)
 }
 
-//func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
-//	for offer := range offers {
-//		go func(o *mesos.Offer) {
-//
-//			log.Printf("Received Offer <%v> with cpus=%d mem=%d", o.Id.GetValue(), cpus, mems)
-//
-//			cpusLeft := cpus
-//			memsLeft := mems
-//
-//			if cpusPerTask <= cpusLeft && memPerTask <= memsLeft {
-//				// only wait for a task if the offer meets the requirements
-//				// TODO: maybe set a timeout and then reject offer and reenqueue task
-//				task := <-tasks
-//				log.Printf("got task: %+v", task)
-//
-//				log.Printf("about to marshal task: %+v", task)
-//
-//				taskJsonBytes, err := json.Marshal(task)
-//
-//				if err != nil {
-//					log.Printf("Could not marshal task")
-//					return
-//				}
-//
-//				sched.tasksLaunched++
-//
-//
-//				sched.taskStatusesChans[task.Id] = task.Build.TaskStatusesChan
-//
-//				taskInfo := &mesos.TaskInfo{
-//					Name:     proto.String(task.Id),
-//					TaskId:   taskId,
-//					SlaveId:  o.SlaveId,
-//					Data:     taskJsonBytes,
-//					Executor: sched.executor,
-//					Resources: []*mesos.Resource{
-//						util.NewScalarResource("cpus", cpusPerTask),
-//						util.NewScalarResource("mem", memPerTask),
-//					},
-//				}
-//
-//				log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), o.Id.GetValue())
-//
-//				driver.LaunchTasks([]*mesos.OfferID{o.Id}, []*mesos.TaskInfo{taskInfo}, filters)
-//			} else {
-//				log.Printf("Declining offer: %s", o.Id)
-//				driver.DeclineOffer(o.Id, filters)
-//			}
-//		}(offer)
-//
-//	}
-//}
-
 func (s *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
 	statusChan := s.taskStatusesChans[status.TaskId.GetValue()]
 
