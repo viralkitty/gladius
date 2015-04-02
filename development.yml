@@ -2,7 +2,6 @@ gladius:
   extends:
     file: common.yml
     service: gladius
-  command: sh -c "SCHEDULER_IP=$(awk 'NR==1{print $1}' /etc/hosts) gladius"
   build: .
   environment:
     - SCHEDULER_PORT=8081

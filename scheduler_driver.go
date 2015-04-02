@@ -24,8 +24,6 @@ func NewSchedulerDriver() (*sched.MesosSchedulerDriver, error) {
 		Scheduler: NewScheduler(),
 		Framework: frameworkInfo,
 		Master:    mesosTCPAddr.String(),
-		//BindingAddress: schedulerIP,
-		//BindingPort:    uint16(schedulerPort),
 	}
 
 	driver, err := sched.NewMesosSchedulerDriver(driverConfig)
