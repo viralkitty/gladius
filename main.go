@@ -84,10 +84,6 @@ func init() {
 		log.Fatal("SCHEDULER_IP must be set")
 	}
 
-	if os.Getenv("MESOS_MASTER") == "" {
-		log.Fatal("MESOS_MASTER must be set")
-	}
-
 	if os.Getenv("REDIS_IDLE_TIMEOUT") == "" {
 		log.Fatal("REDIS_IDLE_TIMEOUT must be set")
 	}
