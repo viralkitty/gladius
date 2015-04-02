@@ -85,12 +85,8 @@ func init() {
 		log.Fatal("SCHEDULER_IP must be set")
 	}
 
-	if os.Getenv("MESOS_MASTER_IP") == "" {
-		log.Fatal("MESOS_MASTER_IP must be set")
-	}
-
-	if os.Getenv("MESOS_MASTER_PORT") == "" {
-		log.Fatal("MESOS_MASTER_PORT must be set")
+	if os.Getenv("MESOS_MASTER") == "" {
+		log.Fatal("MESOS_MASTER must be set")
 	}
 
 	if os.Getenv("REDIS_IDLE_TIMEOUT") == "" {
@@ -124,10 +120,9 @@ func init() {
 	executorCommand = os.Getenv("EXECUTOR_COMMAND")
 	executorId = os.Getenv("EXECUTOR_ID")
 	frameworkName = os.Getenv("FRAMEWORK_NAME")
-	mesosMasterIP = net.ParseIP(os.Getenv("MESOS_MASTER_IP"))
+	mesosMaster = os.Getenv("MESOS_MASTER")
 	redisIP = net.ParseIP(os.Getenv("REDIS_IP"))
 	redisPort = os.Getenv("REDIS_PORT")
-	mesosMasterPort = os.Getenv("MESOS_MASTER_PORT")
 	gladiusIP = net.ParseIP(os.Getenv("GLADIUS_IP"))
 	gladiusPort = os.Getenv("GLADIUS_PORT")
 	memoryPerTask, memoryParseErr = strconv.ParseFloat(os.Getenv("MEMORY_PER_TASK"), 64)
@@ -148,10 +143,6 @@ func init() {
 
 	if redisIP == nil {
 		log.Fatal("Failed to parse REDIS_IP: ", redisIP)
-	}
-
-	if mesosMasterIP == nil {
-		log.Fatal("Failed to parse MESOS_MASTER_IP: ", os.Getenv("MESOS_MASTER_IP"))
 	}
 
 	if schedulerParseErr != nil {

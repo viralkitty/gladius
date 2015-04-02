@@ -1,23 +1,15 @@
 gladius:
-  command: sh -c "REDIS_IP=$(awk '$2~\"redis\"{print $1;exit}' /etc/hosts) MESOS_MASTER_IP=$(awk '$2~\"master\"{print $1;exit}' /etc/hosts) SCHEDULER_IP=$(awk 'NR==1{print $1}' /etc/hosts) GLADIUS_IP=$(awk 'NR==1{print $1}' /etc/hosts) gladius"
   environment:
-    DOCKER_SOCKET: unix:///var/run/docker.sock
-    EXECUTOR_ID: default
-    EXECUTOR_COMMAND: /executor/gladius-executor
-    FRAMEWORK_NAME: "Gladius"
-    GLADIUS_PORT: 8080
-    MESOS_MASTER_PORT: 5050
-    REDIS_MAX_IDLE: 3
-    REDIS_IDLE_TIMEOUT: 240
-    REDIS_PORT: 6379
-    REDIS_PROTOCOL: tcp
-    SCHEDULER_PORT: 8081
+    - DOCKER_SOCKET=unix:///var/run/docker.sock
+    - EXECUTOR_ID=default
+    - EXECUTOR_COMMAND=/executors/gladius
+    - FRAMEWORK_NAME=Gladius
+    - REDIS_MAX_IDLE=3
+    - REDIS_IDLE_TIMEOUT=240
+    - REDIS_PROTOCOL=tcp
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - /usr/local/bin/docker:/usr/local/bin/docker
-  ports:
-    - "8080"
-    - "8081"
 master:
   image: redjack/mesos-master
   environment:
@@ -25,8 +17,6 @@ master:
     MESOS_LOG_DIR: /var/log
     MESOS_WORK_DIR: /tmp
     MESOS_QUORUM: 1
-  ports:
-    - "5050"
 slave:
   image: redjack/mesos-slave
   environment:
@@ -42,15 +32,12 @@ slave:
     - /sys:/sys
     - /proc:/proc
     - /tmp:/executors
-  ports:
-    - "5051"
+executor:
+  volumes:
+    - /tmp:/executors
 redis:
   image: redis
-  ports:
-    - "6379"
 zk:
   image: jplock/zookeeper
-  ports:
-    - "2181"
-    - "2888"
-    - "3888"
+registry:
+  image: registry

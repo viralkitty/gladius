@@ -2,26 +2,45 @@ gladius:
   extends:
     file: common.yml
     service: gladius
+  command: sh -c "SCHEDULER_IP=$(awk 'NR==1{print $1}' /etc/hosts) gladius"
   build: .
   environment:
+    - SCHEDULER_PORT=8081
+    - REDIS_PORT=6379
+    - REDIS_IP=127.0.0.1
+    - GLADIUS_IP=127.0.0.1
+    - GLADIUS_PORT=8080
+    - REGISTRY_PORT=5000
+    - REGISTRY_IP=192.168.99.100
     - SSH_KEY=/Users/razic/.ssh/id_gitcorp
     - CPUS_PER_TASK=1
-    - MEMORY_PER_TASK=100
+    - MEMORY_PER_TASK=512
+  ports:
+    - "8080:8080"
   links:
-    - "redis:redis"
-    - "master:master"
+    - registry
+    - redis
+    - master
 master:
   extends:
     file: common.yml
     service: master
   links:
     - zk
+  ports:
+    - "5050:5050"
+executor:
+  extends:
+    file: common.yml
+    service: executor
+  build: ../gladius-executor
 slave:
   extends:
     file: common.yml
     service: slave
   links:
     - zk
+    - registry
 redis:
   extends:
     file: common.yml
@@ -30,3 +49,7 @@ zk:
   extends:
     file: common.yml
     service: zk
+registry:
+  extends:
+    file: common.yml
+    service: registry
