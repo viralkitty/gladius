@@ -25,10 +25,6 @@ master:
   extends:
     file: common.yml
     service: master
-  environment:
-    - MESOS_ZK=zk://zk:2181/mesos
-  links:
-    - zk
   ports:
     - "5050:5050"
 executor:
@@ -41,18 +37,14 @@ slave:
     file: common.yml
     service: slave
   links:
-    - zk
     - registry
+    - master
   environment:
-    - MESOS_MASTER=zk://zk:2181/mesos
+    - MESOS_MASTER=master:5050
 redis:
   extends:
     file: common.yml
     service: redis
-zk:
-  extends:
-    file: common.yml
-    service: zk
 registry:
   extends:
     file: common.yml

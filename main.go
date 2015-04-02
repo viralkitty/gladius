@@ -34,15 +34,12 @@ var (
 	redisPool        *redis.Pool
 	redisIdleTimeout time.Duration
 	redisMaxIdle     int
-	schedulerIP      net.IP
-	schedulerPort    int
 	schedulerDriver  *sched.MesosSchedulerDriver
 )
 
 func init() {
 	var (
 		dockerCliErr       error
-		schedulerParseErr  error
 		schedulerDriverErr error
 		cpusParseErr       error
 		memoryParseErr     error
@@ -80,10 +77,6 @@ func init() {
 		log.Fatal("MEMORY_PER_TASK must be set")
 	}
 
-	if os.Getenv("SCHEDULER_IP") == "" {
-		log.Fatal("SCHEDULER_IP must be set")
-	}
-
 	if os.Getenv("REDIS_IDLE_TIMEOUT") == "" {
 		log.Fatal("REDIS_IDLE_TIMEOUT must be set")
 	}
@@ -104,10 +97,6 @@ func init() {
 		log.Fatal("REDIS_PROTOCOL must be set")
 	}
 
-	if os.Getenv("SCHEDULER_PORT") == "" {
-		log.Fatal("SCHEDULER_PORT must be set")
-	}
-
 	quit = make(chan bool)
 	tasks = make(chan *Task)
 	cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
@@ -124,24 +113,14 @@ func init() {
 	redisProtocol = os.Getenv("REDIS_PROTOCOL")
 	redisPool = NewRedisPool()
 	routes = NewRoutes()
-	schedulerIP = net.ParseIP(os.Getenv("SCHEDULER_IP"))
-	schedulerPort, schedulerParseErr = strconv.Atoi(os.Getenv("SCHEDULER_PORT"))
 	schedulerDriver, schedulerDriverErr = NewSchedulerDriver()
 
 	if dockerCliErr != nil {
 		log.Fatal("Failed to initialize Docker: ", dockerCliErr)
 	}
 
-	if schedulerIP == nil {
-		log.Fatal("Failed to parse SCHEDULER_IP: ", schedulerIP)
-	}
-
 	if redisIP == nil {
 		log.Fatal("Failed to parse REDIS_IP: ", redisIP)
-	}
-
-	if schedulerParseErr != nil {
-		log.Fatal("Failed to parse SCHEDULER_PORT: %v", schedulerParseErr)
 	}
 
 	if cpusParseErr != nil {

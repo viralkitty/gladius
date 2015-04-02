@@ -35,7 +35,5 @@ executor:
     - /tmp:/executors
 redis:
   image: redis
-zk:
-  image: jplock/zookeeper
 registry:
   image: registry
