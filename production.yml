@@ -5,8 +5,9 @@ gladius:
   build: .
   environment:
     - SCHEDULER_PORT=8081
-    - REDIS_HOST=redis
     - REDIS_PORT=6379
+    - REDIS_IP=127.0.0.1
+    - GLADIUS_IP=127.0.0.1
     - GLADIUS_PORT=8080
     - REGISTRY_PORT=5000
     - REGISTRY_IP=192.168.99.100

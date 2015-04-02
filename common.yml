@@ -7,6 +7,7 @@ gladius:
     - REDIS_MAX_IDLE=3
     - REDIS_IDLE_TIMEOUT=240
     - REDIS_PROTOCOL=tcp
+    - PULL_IMAGE_MAX_ATTEMPTS=4
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - /usr/local/bin/docker:/usr/local/bin/docker

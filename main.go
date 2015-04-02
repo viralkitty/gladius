@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -25,12 +24,8 @@ var (
 	cpusPerTask      float64
 	memoryPerTask    float64
 	frameworkName    string
-	gladiusIP        net.IP
 	gladiusPort      string
 	mesosMaster      string
-	redisIP          net.IP
-	redisPort        string
-	redisProtocol    string
 	redisPool        *redis.Pool
 	redisIdleTimeout time.Duration
 	redisMaxIdle     int
@@ -65,10 +60,6 @@ func init() {
 		log.Fatal("FRAMEWORK_NAME must be set")
 	}
 
-	if os.Getenv("GLADIUS_IP") == "" {
-		log.Fatal("GLADIUS_IP must be set")
-	}
-
 	if os.Getenv("GLADIUS_PORT") == "" {
 		log.Fatal("GLADIUS_PORT must be set")
 	}
@@ -79,10 +70,6 @@ func init() {
 
 	if os.Getenv("REDIS_IDLE_TIMEOUT") == "" {
 		log.Fatal("REDIS_IDLE_TIMEOUT must be set")
-	}
-
-	if os.Getenv("REDIS_IP") == "" {
-		log.Fatal("REDIS_IP must be set")
 	}
 
 	if os.Getenv("REDIS_MAX_IDLE") == "" {
@@ -105,22 +92,14 @@ func init() {
 	executorId = os.Getenv("EXECUTOR_ID")
 	frameworkName = os.Getenv("FRAMEWORK_NAME")
 	mesosMaster = os.Getenv("MESOS_MASTER")
-	redisIP = net.ParseIP(os.Getenv("REDIS_IP"))
-	redisPort = os.Getenv("REDIS_PORT")
-	gladiusIP = net.ParseIP(os.Getenv("GLADIUS_IP"))
 	gladiusPort = os.Getenv("GLADIUS_PORT")
 	memoryPerTask, memoryParseErr = strconv.ParseFloat(os.Getenv("MEMORY_PER_TASK"), 64)
-	redisProtocol = os.Getenv("REDIS_PROTOCOL")
 	redisPool = NewRedisPool()
 	routes = NewRoutes()
 	schedulerDriver, schedulerDriverErr = NewSchedulerDriver()
 
 	if dockerCliErr != nil {
 		log.Fatal("Failed to initialize Docker: ", dockerCliErr)
-	}
-
-	if redisIP == nil {
-		log.Fatal("Failed to parse REDIS_IP: ", redisIP)
 	}
 
 	if cpusParseErr != nil {
@@ -139,7 +118,7 @@ func init() {
 	http.HandleFunc("/builds", routes.Builds)
 
 	go func() {
-		err := http.ListenAndServe(fmt.Sprintf("%s:%s", gladiusIP, gladiusPort), nil)
+		err := http.ListenAndServe(fmt.Sprintf(":%s", gladiusPort), nil)
 
 		if err != nil {
 			log.Printf("Failed to serve the API: %s", err.Error())

@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"os"
 	"time"
 
 	redis "github.com/garyburd/redigo/redis"
@@ -17,13 +18,11 @@ func NewRedisPool() *redis.Pool {
 }
 
 func redisDial() (redis.Conn, error) {
-	connection, err := redis.Dial(redisProtocol, net.JoinHostPort(redisIP.String(), redisPort))
+	ip := os.Getenv("REDIS_PORT_6379_TCP_ADDR")
+	port := os.Getenv("REDIS_PORT_6379_TCP_PORT")
+	protocol := os.Getenv("REDIS_PORT_6379_TCP_PROTO")
 
-	if err != nil {
-		return nil, err
-	}
-
-	return connection, err
+	return redis.Dial(protocol, net.JoinHostPort(ip, port))
 }
 
 func redisTestOnBorrow(connection redis.Conn, t time.Time) error {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -15,11 +16,6 @@ import (
 	docker "github.com/fsouza/go-dockerclient"
 	redis "github.com/garyburd/redigo/redis"
 	mesos "github.com/mesos/mesos-go/mesosproto"
-)
-
-const (
-	dockerRegistry = "docker.corp.adobe.com"
-	baseImage      = "docker.corp.adobe.com/typekit/bundler-typekit"
 )
 
 type Build struct {
@@ -33,6 +29,8 @@ type Build struct {
 	Scheduler        *Scheduler             `json:"-"`
 	TaskStatusesChan chan *mesos.TaskStatus `json:"-"`
 	Tasks            []*Task                `json:"tasks,omitempty"`
+	RegistryTCPAddr  net.TCPAddr            `json:"registryTCPAddr,omitempty"`
+	BaseImage        string                 `json:"baseImage,omitempty"`
 }
 
 func NewBuild() *Build {
@@ -58,6 +56,10 @@ func NewBuild() *Build {
 			NewTask("cucumber --profile=mails --no-color --format=progress features/mails"),
 		},
 		TaskStatusesChan: make(chan *mesos.TaskStatus),
+		RegistryTCPAddr: net.TCPAddr{
+			IP:   net.ParseIP(os.Getenv("REGISTRY_PORT_5000_TCP_ADDR")),
+			Port: 5000,
+		},
 	}
 }
 
@@ -100,99 +102,107 @@ func AllBuilds() []Build {
 }
 
 func (b *Build) Build() {
-	var err error
-
-	//	b.Save()
-	//
-	//	err = b.pullImage()
-	//
-	//	if err != nil {
-	//		b.SaveAndHandleError(err)
-	//		return
-	//	}
-	//
-	//	err = b.createContainer()
-	//
-	//	if err != nil {
-	//		b.SaveAndHandleError(err)
-	//		return
-	//	}
-	//
-	//	for {
-	//		err = b.startContainer()
-	//
-	//		if err != nil {
-	//			b.SaveAndHandleError(err)
-	//			continue
-	//		}
-	//
-	//		err = b.waitContainer()
-	//
-	//		if err != nil {
-	//			b.SaveAndHandleError(err)
-	//			continue
-	//		}
-	//
-	//		break
-	//	}
-	//
-	//	err = b.commitContainer()
-	//
-	//	if err != nil {
-	//		b.SaveAndHandleError(err)
-	//		return
-	//	}
-	//
-	//	err = b.removeContainer()
-	//
-	//	if err != nil {
-	//		b.SaveAndHandleError(err)
-	//		return
-	//	}
-	//
-	//	err = b.pushImage()
-	//
-	//	if err != nil {
-	//		b.SaveAndHandleError(err)
-	//		return
-	//	}
-
-	err = b.launchTasks()
+	err := b.Save()
+	pullIsTakingTooLong := time.After(10 * time.Minute)
 
 	if err != nil {
-		b.SaveAndHandleError(err)
-		return
+		b.log("Failed to save: %v", err)
 	}
 
-	//err = b.removeImage()
+	for {
+		pulledSuccessfully, errorWhilePulling := b.pullBaseImage()
+
+		b.log("Pulling base image")
+
+		select {
+		case <-pulledSuccessfully:
+			break
+		case err := <-errorWhilePulling:
+			b.log(err.Error())
+
+			continue
+		case <-pullIsTakingTooLong:
+			b.log("Timed out pulling base image")
+
+			return
+		}
+	}
+
+	//err = b.createContainer()
+	//if err != nil {
+	//	b.SaveAndHandleError(err)
+	//	return
+	//}
+
+	//for {
+	//	err = b.startContainer()
+	//	if err != nil {
+	//		b.SaveAndHandleError(err)
+	//		continue
+	//	}
+
+	//	err = b.waitContainer()
+	//	if err != nil {
+	//		b.SaveAndHandleError(err)
+	//		continue
+	//	}
+
+	//	break
+	//}
+
+	//err = b.commitContainer()
+	//if err != nil {
+	//	b.SaveAndHandleError(err)
+	//	return
+	//}
+
+	//err = b.removeContainer()
+	//if err != nil {
+	//	b.SaveAndHandleError(err)
+	//	return
+	//}
+
+	//err = b.pushImage()
+	//if err != nil {
+	//	b.SaveAndHandleError(err)
+	//	return
+	//}
+
+	//err = b.launchTasks()
 
 	//if err != nil {
 	//	b.SaveAndHandleError(err)
 	//	return
 	//}
 
+	////err = b.removeImage()
+
+	////if err != nil {
+	////	b.SaveAndHandleError(err)
+	////	return
+	////}
+
 }
 
 func (b *Build) createContainer() error {
-	b.log("Creating container")
-
-	createOpts := docker.CreateContainerOptions{
+	opts := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Tty:          true,
 			AttachStdin:  true,
 			AttachStdout: true,
 			AttachStderr: true,
 			WorkingDir:   "/",
-			Image:        baseImage,
+			Image:        b.BaseImage,
 			Entrypoint:   []string{"sh"},
 			Cmd:          []string{"-c", b.CloneCmd()},
 		},
 	}
+
 	var err error
-	b.Container, err = dockerCli.CreateContainer(createOpts)
+	b.Container, err = dockerCli.CreateContainer(opts)
 
 	if err != nil {
-		fmt.Sprintf("Could not create container from image %s: %s", baseImage, err.Error())
+		fmt.Sprintf("Could not create container from image %s: %s", b.BaseImage, err.Error())
 		return err
 	}
 
@@ -245,40 +255,33 @@ func (b *Build) waitContainer() error {
 	return nil
 }
 
-func (b *Build) pullImage() error {
-	done := make(chan bool)
-	timeout := time.After(5 * time.Minute)
-	auth := docker.AuthConfiguration{}
-	opts := docker.PullImageOptions{
-		Repository: baseImage,
-		Registry:   dockerRegistry,
-	}
-	maxRetries := 20
-	pullRetryInterval := 1 * time.Minute
+func (b *Build) pullImage(opts docker.PullImageOptions) (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
 
 	go func() {
-		for retries := 0; retries < maxRetries; retries++ {
-			err := dockerCli.PullImage(opts, auth)
+		err := dockerCli.PullImage(opts, docker.AuthConfiguration{})
 
-			if err != nil {
-				log.Printf("Failed to pull image %s: %s", baseImage, err.Error())
-				log.Printf("Attempting to repull image %s: %s", baseImage, err.Error())
-				time.Sleep(pullRetryInterval)
+		if err != nil {
+			errorChan <- err
 
-				continue
-			}
+			close(doneChan)
+			close(errorChan)
 
-			done <- true
-			break
+			return
 		}
+
+		doneChan <- true
 	}()
 
-	select {
-	case <-done:
-		return nil
-	case <-timeout:
-		return errors.New("Could not pull bundler typekit image")
-	}
+	return doneChan, errorChan
+}
+
+func (b *Build) pullBaseImage() (<-chan bool, <-chan error) {
+	return b.pullImage(docker.PullImageOptions{
+		Registry:   b.RegistryTCPAddr.String(),
+		Repository: b.BaseImage,
+	})
 }
 
 func (b *Build) commitContainer() error {
@@ -287,9 +290,9 @@ func (b *Build) commitContainer() error {
 	b.log("Commiting container")
 
 	commitOpts := docker.CommitContainerOptions{
-		Container:  b.Container.ID,
-		Repository: b.FullImgName(),
-		Tag:        b.Id,
+		Container: b.Container.ID,
+		//Repository: ,
+		Tag: b.Id,
 	}
 
 	b.Image, err = dockerCli.CommitContainer(commitOpts)
@@ -331,7 +334,7 @@ func (b *Build) pushImage() error {
 	timeout := time.After(5 * time.Minute)
 	auth := docker.AuthConfiguration{}
 	opts := docker.PushImageOptions{
-		Name:         b.FullImgName(),
+		Name:         b.FullImageName(net.TCPAddr{}, ""),
 		OutputStream: &buf,
 		Tag:          b.Id,
 	}
@@ -456,8 +459,8 @@ func (b *Build) ImgName() string {
 	return fmt.Sprintf("typekit/%s", b.App)
 }
 
-func (b *Build) FullImgName() string {
-	return fmt.Sprintf("%s/%s", dockerRegistry, b.ImgName())
+func (b *Build) FullImageName(registry net.TCPAddr, imageName string) string {
+	return fmt.Sprintf("%s/%s", registry.String(), imageName)
 }
 
 func (b *Build) CloneCmd() string {
