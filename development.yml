@@ -15,6 +15,7 @@ gladius:
     - SSH_KEY=/Users/razic/.ssh/id_gitcorp
     - CPUS_PER_TASK=1
     - MEMORY_PER_TASK=512
+    - MESOS_MASTER=mesos:5050
   ports:
     - "8080:8080"
   links:
@@ -25,6 +26,8 @@ master:
   extends:
     file: common.yml
     service: master
+  environment:
+    - MESOS_ZK=zk://zk:2181/mesos
   links:
     - zk
   ports:
@@ -41,6 +44,8 @@ slave:
   links:
     - zk
     - registry
+  environment:
+    - MESOS_MASTER=zk://zk:2181/mesos
 redis:
   extends:
     file: common.yml

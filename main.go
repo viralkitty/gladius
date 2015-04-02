@@ -27,8 +27,7 @@ var (
 	frameworkName    string
 	gladiusIP        net.IP
 	gladiusPort      string
-	mesosMasterIP    net.IP
-	mesosMasterPort  string
+	mesosMaster      string
 	redisIP          net.IP
 	redisPort        string
 	redisProtocol    string
