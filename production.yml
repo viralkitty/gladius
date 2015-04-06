@@ -5,6 +5,8 @@ gladius:
     service: gladius
   image: docker.corp.adobe.com/typekit/gladius
   environment:
+    - MASTER_PORT_5050_TCP_ADDR=192.168.27.255
+    - MASTER_PORT=80
     - SCHEDULER_PORT=8081
     - GLADIUS_PORT=80
     - CPUS_PER_TASK=.5
