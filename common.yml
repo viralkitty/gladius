@@ -1,6 +1,6 @@
 gladius:
   environment:
-    - DOCKER_SOCKET=unix:///var/run/docker.sock
+    - DOCKER_API=unix:///var/run/docker.sock
     - DOCKER_REGISTRY=docker.corp.adobe.com
     - EXECUTOR_ID=default
     - EXECUTOR_COMMAND=/executors/gladius
@@ -8,7 +8,6 @@ gladius:
     - REDIS_MAX_IDLE=3
     - REDIS_IDLE_TIMEOUT=240
     - REDIS_PROTOCOL=tcp
-    - DOCKER_API=172.17.42.1:2376
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - /usr/local/bin/docker:/usr/local/bin/docker

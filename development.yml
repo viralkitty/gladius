@@ -12,10 +12,6 @@ gladius:
     - CPUS_PER_TASK=1
     - MEMORY_PER_TASK=512
     - MESOS_MASTER=mesos:5050
-    - DOCKER_API=192.168.99.100:2376
-    - DOCKER_CA=/Users/razic/.docker/machine/certs/ca.pem
-    - DOCKER_CERT=/Users/razic/.docker/machine/certs/cert.pem
-    - DOCKER_KEY=/Users/razic/.docker/machine/certs/key.pem
   volumes:
     - /Users:/Users
   ports:

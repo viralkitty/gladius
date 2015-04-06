@@ -44,10 +44,6 @@ func init() {
 		log.Fatal("CPUS_PER_TASK must be set")
 	}
 
-	if os.Getenv("DOCKER_SOCKET") == "" {
-		log.Fatal("DOCKER_SOCKET must be set")
-	}
-
 	if os.Getenv("EXECUTOR_COMMAND") == "" {
 		log.Fatal("EXECUTOR_COMMAND must be set")
 	}
@@ -87,7 +83,13 @@ func init() {
 	quit = make(chan bool)
 	tasks = make(chan *Task)
 	cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
-	dockerCli, dockerCliErr = docker.NewTLSClient(os.Getenv("DOCKER_API"), os.Getenv("DOCKER_CERT"), os.Getenv("DOCKER_KEY"), os.Getenv("DOCKER_CA"))
+
+	if os.Getenv("DOCKER_TLS") == "1" {
+		dockerCli, dockerCliErr = docker.NewTLSClient(os.Getenv("DOCKER_API"), os.Getenv("DOCKER_CERT"), os.Getenv("DOCKER_KEY"), os.Getenv("DOCKER_CA"))
+	} else {
+		dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_API"))
+	}
+
 	executorCommand = os.Getenv("EXECUTOR_COMMAND")
 	executorId = os.Getenv("EXECUTOR_ID")
 	frameworkName = os.Getenv("FRAMEWORK_NAME")
