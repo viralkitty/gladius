@@ -12,38 +12,38 @@ import (
 
 func NewSchedulerDriver() (*sched.MesosSchedulerDriver, error) {
 	var (
-		port        int
-		bindingPort int
-		err         error
+		masterPort    int
+		schedulerPort int
+		err           error
 	)
 
-	port = 5050
+	masterPort = 5050
 
 	if os.Getenv("MASTER_PORT") != "" {
-		port, err = strconv.Atoi(os.Getenv("MASTER_PORT"))
+		masterPort, err = strconv.Atoi(os.Getenv("MASTER_PORT"))
 
 		if err != nil {
-			port = 5050
+			masterPort = 5050
 		}
 	}
 
-	bindingPort = 8081
+	schedulerPort = 5051
 
 	if os.Getenv("SCHEDULER_PORT") != "" {
-		port, err = strconv.Atoi(os.Getenv("SCHEDULER_PORT"))
+		schedulerPort, err = strconv.Atoi(os.Getenv("SCHEDULER_PORT"))
 
 		if err != nil {
-			port = 5050
+			schedulerPort = 5051
 		}
 	}
 
 	schedulerTCPAddr := net.TCPAddr{
 		IP:   net.ParseIP(os.Getenv("SCHEDULER_IP")),
-		Port: bindingPort,
+		Port: schedulerPort,
 	}
 	mesosTCPAddr := net.TCPAddr{
 		IP:   net.ParseIP(os.Getenv("MASTER_PORT_5050_TCP_ADDR")),
-		Port: port,
+		Port: masterPort,
 	}
 	frameworkInfo := &mesos.FrameworkInfo{
 		User: proto.String(""),
