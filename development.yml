@@ -8,16 +8,19 @@ gladius:
     - REDIS_HOST=redis
     - REDIS_PORT=6379
     - GLADIUS_PORT=8080
-    - REGISTRY_PORT=5000
-    - REGISTRY_IP=192.168.99.100
     - SSH_KEY=/Users/razic/.ssh/id_gitcorp
     - CPUS_PER_TASK=1
     - MEMORY_PER_TASK=512
     - MESOS_MASTER=mesos:5050
+    - DOCKER_API=192.168.99.100:2376
+    - DOCKER_CA=/Users/razic/.docker/machine/certs/ca.pem
+    - DOCKER_CERT=/Users/razic/.docker/machine/certs/cert.pem
+    - DOCKER_KEY=/Users/razic/.docker/machine/certs/key.pem
+  volumes:
+    - /Users:/Users
   ports:
     - "8080:8080"
   links:
-    - registry
     - redis
     - master
 master:
@@ -36,7 +39,6 @@ slave:
     file: common.yml
     service: slave
   links:
-    - registry
     - master
   environment:
     - MESOS_MASTER=master:5050
@@ -44,7 +46,3 @@ redis:
   extends:
     file: common.yml
     service: redis
-registry:
-  extends:
-    file: common.yml
-    service: registry

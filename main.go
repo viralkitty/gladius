@@ -87,7 +87,7 @@ func init() {
 	quit = make(chan bool)
 	tasks = make(chan *Task)
 	cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
-	dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_SOCKET"))
+	dockerCli, dockerCliErr = docker.NewTLSClient(os.Getenv("DOCKER_API"), os.Getenv("DOCKER_CERT"), os.Getenv("DOCKER_KEY"), os.Getenv("DOCKER_CA"))
 	executorCommand = os.Getenv("EXECUTOR_COMMAND")
 	executorId = os.Getenv("EXECUTOR_ID")
 	frameworkName = os.Getenv("FRAMEWORK_NAME")
@@ -116,6 +116,7 @@ func init() {
 
 	rand.Seed(time.Now().UTC().UnixNano())
 	http.HandleFunc("/builds", routes.Builds)
+	http.HandleFunc("/builds/", routes.Builds)
 
 	go func() {
 		err := http.ListenAndServe(fmt.Sprintf(":%s", gladiusPort), nil)

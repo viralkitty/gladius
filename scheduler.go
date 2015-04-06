@@ -52,20 +52,18 @@ func (s *Scheduler) Disconnected(sched.SchedulerDriver) {
 
 func (s *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
 	for _, offer := range offers {
-		log.Printf("Received offer: %v", offer)
+		log.Printf("Received offer %s", offer.Id.GetValue())
 		go s.handleOffer(offer)
 	}
 }
 
 func (s *Scheduler) handleOffer(offer *mesos.Offer) {
-	log.Printf("Handling offer: %v", offer)
-
 	select {
 	case task := <-tasks:
-		log.Printf("Received task: %v", task)
+		log.Printf("Launching task %s for offer %s", task.Id, offer.Id.GetValue())
 		s.launchTaskWithOffer(task, offer)
-	case <-time.After(offerTimeout):
-		log.Printf("Declining offer due to timeout: %v", offer)
+	default:
+		log.Printf("No tasks available; Declining offer %s", offer.Id.GetValue())
 		schedulerDriver.DeclineOffer(offer.Id, filters)
 	}
 }
@@ -90,14 +88,14 @@ func (s *Scheduler) launchTaskWithOffer(task *Task, offer *mesos.Offer) {
 	}
 
 	if err != nil {
-		log.Printf("Declining offer %v for task %v due to marshal error: %s", offer, task, err.Error())
+		log.Printf("Declining offer %s for task %s due to marshal error: %v", offer.Id.GetValue(), task.Id, err)
 		schedulerDriver.DeclineOffer(offer.Id, filters)
 
 		return
 	}
 
 	if cpus < cpusPerTask || mems < memoryPerTask {
-		log.Printf("Declining offer %v for task %v due to insufficient offer resources", offer, task)
+		log.Printf("Declining offer %s for task %s due to insufficient offer resources", offer.Id.GetValue(), task.Id)
 		schedulerDriver.DeclineOffer(offer.Id, filters)
 
 		return
@@ -118,6 +116,8 @@ func (s *Scheduler) launchTaskWithOffer(task *Task, offer *mesos.Offer) {
 			util.NewScalarResource("mem", memoryPerTask),
 		},
 	}
+
+	s.taskStatusesChans[task.Id] = task.Build.TaskStatusesChan
 
 	schedulerDriver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{taskInfo}, filters)
 }
