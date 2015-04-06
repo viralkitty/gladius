@@ -25,7 +25,6 @@ var (
 	memoryPerTask    float64
 	frameworkName    string
 	gladiusPort      string
-	mesosMaster      string
 	redisPool        *redis.Pool
 	redisIdleTimeout time.Duration
 	redisMaxIdle     int
@@ -72,10 +71,6 @@ func init() {
 		log.Fatal("REDIS_MAX_IDLE must be set")
 	}
 
-	if os.Getenv("REDIS_PORT") == "" {
-		log.Fatal("REDIS_PORT must be set")
-	}
-
 	if os.Getenv("REDIS_PROTOCOL") == "" {
 		log.Fatal("REDIS_PROTOCOL must be set")
 	}
@@ -93,7 +88,6 @@ func init() {
 	executorCommand = os.Getenv("EXECUTOR_COMMAND")
 	executorId = os.Getenv("EXECUTOR_ID")
 	frameworkName = os.Getenv("FRAMEWORK_NAME")
-	mesosMaster = os.Getenv("MESOS_MASTER")
 	gladiusPort = os.Getenv("GLADIUS_PORT")
 	memoryPerTask, memoryParseErr = strconv.ParseFloat(os.Getenv("MEMORY_PER_TASK"), 64)
 	redisPool = NewRedisPool()

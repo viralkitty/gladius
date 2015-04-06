@@ -5,13 +5,10 @@ gladius:
   build: .
   environment:
     - SCHEDULER_PORT=8081
-    - REDIS_HOST=redis
-    - REDIS_PORT=6379
     - GLADIUS_PORT=8080
     - SSH_KEY=/Users/razic/.ssh/id_gitcorp
-    - CPUS_PER_TASK=1
+    - CPUS_PER_TASK=.5
     - MEMORY_PER_TASK=512
-    - MESOS_MASTER=mesos:5050
   volumes:
     - /Users:/Users
   ports:
