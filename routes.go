@@ -49,7 +49,7 @@ func (r *Routes) Builds(w http.ResponseWriter, req *http.Request) {
 		switch len(urlPath) {
 		case 2:
 			builds := []*Build{}
-			values, _ := redis.Values(conn.Do("LRANGE", keyBuffer.String(), -1, 10))
+			values, _ := redis.Values(conn.Do("LRANGE", keyBuffer.String(), 0, 9))
 
 			for _, value := range values {
 				var build Build
