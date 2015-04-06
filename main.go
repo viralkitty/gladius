@@ -71,10 +71,6 @@ func init() {
 		log.Fatal("REDIS_MAX_IDLE must be set")
 	}
 
-	if os.Getenv("REDIS_PROTOCOL") == "" {
-		log.Fatal("REDIS_PROTOCOL must be set")
-	}
-
 	quit = make(chan bool)
 	tasks = make(chan *Task)
 	cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
