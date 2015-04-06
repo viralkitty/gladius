@@ -8,6 +8,7 @@ gladius:
     - REDIS_MAX_IDLE=3
     - REDIS_IDLE_TIMEOUT=240
     - REDIS_PROTOCOL=tcp
+    - REDIS_PORT_6379_TCP_PORT=6379
   volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     - /usr/local/bin/docker:/usr/local/bin/docker
