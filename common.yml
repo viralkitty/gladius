@@ -1,0 +1,39 @@
+gladius:
+  environment:
+    - DOCKER_API=unix:///var/run/docker.sock
+    - DOCKER_REGISTRY=docker.corp.adobe.com
+    - EXECUTOR_ID=default
+    - EXECUTOR_COMMAND=/executors/gladius
+    - FRAMEWORK_NAME=Gladius
+    - REDIS_MAX_IDLE=3
+    - REDIS_IDLE_TIMEOUT=240
+    - REDIS_PORT_6379_TCP_PROTO=tcp
+    - REDIS_PORT_6379_TCP_PORT=6379
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /usr/local/bin/docker:/usr/local/bin/docker
+master:
+  image: redjack/mesos-master
+  environment:
+    MESOS_LOG_DIR: /var/log
+    MESOS_WORK_DIR: /tmp
+    MESOS_QUORUM: 1
+slave:
+  image: redjack/mesos-slave
+  environment:
+    MESOS_LOG_DIR: /var/log
+    MESOS_CONTAINERIZERS: docker,mesos
+    MESOS_EXECUTOR_REGISTRATION_TIMEOUT: 5mins
+    MESOS_ISOLATOR: cgroups/cpu,cgroups/mem
+    MESOS_DOCKER_REMOVE_DELAY: 2hrs
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /usr/local/bin/docker:/usr/local/bin/docker
+    - /sys:/sys
+    - /proc:/proc
+    - /tmp:/executors
+executor:
+  volumes:
+    - /tmp:/executors
+redis:
+  image: redis

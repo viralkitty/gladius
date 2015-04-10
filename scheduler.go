@@ -3,11 +3,20 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"time"
 
-	"github.com/gogo/protobuf/proto"
+	proto "github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
+)
+
+const (
+	offerTimeout = 1 * time.Minute
+)
+
+var (
+	filters = &mesos.Filters{RefuseSeconds: proto.Float64(5)}
 )
 
 type Scheduler struct {
@@ -17,102 +26,104 @@ type Scheduler struct {
 	taskStatusesChans map[string]chan *mesos.TaskStatus
 }
 
-func NewScheduler(exec *mesos.ExecutorInfo) *Scheduler {
+func NewScheduler() *Scheduler {
 	return &Scheduler{
-		executor:          exec,
+		executor: &mesos.ExecutorInfo{
+			ExecutorId: util.NewExecutorID(executorId),
+			Command:    util.NewCommandInfo(executorCommand),
+		},
 		tasksLaunched:     0,
 		tasksFinished:     0,
 		taskStatusesChans: make(map[string]chan *mesos.TaskStatus),
 	}
 }
 
-func (sched *Scheduler) Registered(driver sched.SchedulerDriver, frameworkId *mesos.FrameworkID, masterInfo *mesos.MasterInfo) {
+func (s *Scheduler) Registered(driver sched.SchedulerDriver, frameworkId *mesos.FrameworkID, masterInfo *mesos.MasterInfo) {
 	log.Printf("Framework Registered with Master %v", masterInfo)
 }
 
-func (sched *Scheduler) Reregistered(driver sched.SchedulerDriver, masterInfo *mesos.MasterInfo) {
+func (s *Scheduler) Reregistered(driver sched.SchedulerDriver, masterInfo *mesos.MasterInfo) {
 	log.Printf("Framework Re-Registered with Master %v", masterInfo)
 }
 
-func (sched *Scheduler) Disconnected(sched.SchedulerDriver) {
+func (s *Scheduler) Disconnected(sched.SchedulerDriver) {
 	log.Printf("Disconnected")
 }
 
-func (sched *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
+func (s *Scheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
 	for _, offer := range offers {
-		go func(o *mesos.Offer) {
-			cpuResources := util.FilterResources(o.Resources, func(res *mesos.Resource) bool {
-				return res.GetName() == "cpus"
-			})
-			cpus := 0.0
-			for _, res := range cpuResources {
-				cpus += res.GetScalar().GetValue()
-			}
-
-			memResources := util.FilterResources(o.Resources, func(res *mesos.Resource) bool {
-				return res.GetName() == "mem"
-			})
-			mems := 0.0
-			for _, res := range memResources {
-				mems += res.GetScalar().GetValue()
-			}
-
-			log.Printf("Received Offer <%v> with cpus=%d mem=%d", o.Id.GetValue(), cpus, mems)
-
-			cpusLeft := cpus
-			memsLeft := mems
-			task := <-tasks
-			filters := &mesos.Filters{RefuseSeconds: proto.Float64(1)}
-
-			log.Printf("got task: %+v", task)
-
-			if cpusPerTask <= cpusLeft && memPerTask <= memsLeft {
-				log.Printf("about to marshal task: %+v", task)
-
-				taskJsonBytes, err := json.Marshal(task)
-
-				if err != nil {
-					log.Printf("Could not marshal task")
-					return
-				}
-
-				sched.tasksLaunched++
-
-				taskId := &mesos.TaskID{
-					Value: proto.String(task.Id),
-				}
-
-				sched.taskStatusesChans[task.Id] = task.Build.TaskStatusesChan
-
-				taskInfo := &mesos.TaskInfo{
-					Name:     proto.String(task.Id),
-					TaskId:   taskId,
-					SlaveId:  o.SlaveId,
-					Data:     taskJsonBytes,
-					Executor: sched.executor,
-					Resources: []*mesos.Resource{
-						util.NewScalarResource("cpus", cpusPerTask),
-						util.NewScalarResource("mem", memPerTask),
-					},
-				}
-
-				log.Printf("Launching task: %s with offer %s\n", taskInfo.GetName(), o.Id.GetValue())
-
-				driver.LaunchTasks([]*mesos.OfferID{o.Id}, []*mesos.TaskInfo{taskInfo}, filters)
-			} else {
-				log.Printf("Declining offer: %s", o.Id)
-				driver.DeclineOffer(o.Id, filters)
-				go func() {
-					tasks <- task
-				}()
-			}
-		}(offer)
-
+		log.Printf("Received offer %s", offer.Id.GetValue())
+		go s.handleOffer(offer)
 	}
 }
 
-func (sched *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
-	statusChan := sched.taskStatusesChans[status.TaskId.GetValue()]
+func (s *Scheduler) handleOffer(offer *mesos.Offer) {
+	select {
+	case task := <-tasks:
+		log.Printf("Launching task %s for offer %s", task.Id, offer.Id.GetValue())
+		s.launchTaskWithOffer(task, offer)
+	default:
+		log.Printf("No tasks available; Declining offer %s", offer.Id.GetValue())
+		schedulerDriver.DeclineOffer(offer.Id, filters)
+	}
+}
+
+func (s *Scheduler) launchTaskWithOffer(task *Task, offer *mesos.Offer) {
+	mems := 0.0
+	cpus := 0.0
+	taskJsonBytes, err := json.Marshal(task)
+	cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
+		return res.GetName() == "cpus"
+	})
+	memResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
+		return res.GetName() == "mem"
+	})
+
+	for _, res := range cpuResources {
+		cpus += res.GetScalar().GetValue()
+	}
+
+	for _, res := range memResources {
+		mems += res.GetScalar().GetValue()
+	}
+
+	if err != nil {
+		log.Printf("Declining offer %s for task %s due to marshal error: %v", offer.Id.GetValue(), task.Id, err)
+		schedulerDriver.DeclineOffer(offer.Id, filters)
+
+		return
+	}
+
+	if cpus < cpusPerTask || mems < memoryPerTask {
+		log.Printf("Declining offer %s for task %s due to insufficient offer resources", offer.Id.GetValue(), task.Id)
+		schedulerDriver.DeclineOffer(offer.Id, filters)
+
+		return
+	}
+
+	taskId := &mesos.TaskID{
+		Value: proto.String(task.Id),
+	}
+
+	taskInfo := &mesos.TaskInfo{
+		Name:     proto.String(task.Cmd),
+		TaskId:   taskId,
+		SlaveId:  offer.SlaveId,
+		Data:     taskJsonBytes,
+		Executor: s.executor,
+		Resources: []*mesos.Resource{
+			util.NewScalarResource("cpus", cpusPerTask),
+			util.NewScalarResource("mem", memoryPerTask),
+		},
+	}
+
+	s.taskStatusesChans[task.Id] = task.Build.TaskStatusesChan
+
+	schedulerDriver.LaunchTasks([]*mesos.OfferID{offer.Id}, []*mesos.TaskInfo{taskInfo}, filters)
+}
+
+func (s *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
+	statusChan := s.taskStatusesChans[status.TaskId.GetValue()]
 
 	log.Printf("Status update: task %v is in state %s", status.TaskId.GetValue(), status.State.Enum().String())
 
@@ -125,22 +136,22 @@ func (sched *Scheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos
 	}
 }
 
-func (sched *Scheduler) OfferRescinded(sched.SchedulerDriver, *mesos.OfferID) {
+func (s *Scheduler) OfferRescinded(sched.SchedulerDriver, *mesos.OfferID) {
 	log.Printf("Offer rescinded")
 }
 
-func (sched *Scheduler) FrameworkMessage(sched.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, string) {
+func (s *Scheduler) FrameworkMessage(sched.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, string) {
 	log.Printf("Framework received message")
 }
 
-func (sched *Scheduler) SlaveLost(sched.SchedulerDriver, *mesos.SlaveID) {
+func (s *Scheduler) SlaveLost(sched.SchedulerDriver, *mesos.SlaveID) {
 	log.Printf("Slave lost")
 }
 
-func (sched *Scheduler) ExecutorLost(sched.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, int) {
+func (s *Scheduler) ExecutorLost(sched.SchedulerDriver, *mesos.ExecutorID, *mesos.SlaveID, int) {
 	log.Printf("Executor lost")
 }
 
-func (sched *Scheduler) Error(driver sched.SchedulerDriver, err string) {
+func (s *Scheduler) Error(driver sched.SchedulerDriver, err string) {
 	log.Printf("Scheduler received error: %v", err)
 }

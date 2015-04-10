@@ -1,0 +1,41 @@
+gladius:
+  extends:
+    file: common.yml
+    service: gladius
+  build: .
+  environment:
+    - SCHEDULER_PORT=8081
+    - GLADIUS_PORT=8080
+    - SSH_KEY=/Users/razic/.ssh/id_gitcorp
+    - CPUS_PER_TASK=.5
+    - MEMORY_PER_TASK=512
+  volumes:
+    - /Users:/Users
+  ports:
+    - "8080:8080"
+  links:
+    - redis
+    - master
+master:
+  extends:
+    file: common.yml
+    service: master
+  ports:
+    - "5050:5050"
+executor:
+  extends:
+    file: common.yml
+    service: executor
+  build: ../gladius-executor
+slave:
+  extends:
+    file: common.yml
+    service: slave
+  links:
+    - master
+  environment:
+    - MESOS_MASTER=master:5050
+redis:
+  extends:
+    file: common.yml
+    service: redis

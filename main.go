@@ -4,114 +4,133 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
 
-	"github.com/fsouza/go-dockerclient"
-	"github.com/garyburd/redigo/redis"
-	"github.com/gogo/protobuf/proto"
-	mesos "github.com/mesos/mesos-go/mesosproto"
-	util "github.com/mesos/mesos-go/mesosutil"
+	docker "github.com/fsouza/go-dockerclient"
+	redis "github.com/garyburd/redigo/redis"
 	sched "github.com/mesos/mesos-go/scheduler"
 )
 
-const (
-	FRAMEWORK_NAME = "Gladius"
+var (
+	quit             chan bool
+	tasks            chan *Task
+	routes           *Routes
+	dockerCli        *docker.Client
+	executorId       string
+	executorCommand  string
+	cpusPerTask      float64
+	memoryPerTask    float64
+	frameworkName    string
+	gladiusPort      string
+	redisPool        *redis.Pool
+	redisIdleTimeout time.Duration
+	redisMaxIdle     int
+	schedulerDriver  *sched.MesosSchedulerDriver
 )
 
-var pool *redis.Pool
-var master = os.Getenv("MESOS_MASTER")
-var execUri = os.Getenv("EXEC_URI")
-var schedIP = net.ParseIP(os.Getenv("MESOS_SCHEDULER_IP"))
-var schedPort, schedPortParseErr = strconv.Atoi(os.Getenv("MESOS_SCHEDULER_PORT"))
-var cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
-var memPerTask, memParseErr = strconv.ParseFloat(os.Getenv("MEM_PER_TASK"), 64)
-var dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_SOCK_PATH"))
-var tasks = make(chan *Task)
-
 func init() {
-	pool = newPool(os.Getenv("REDIS_TCP_ADDR"))
+	var (
+		dockerCliErr       error
+		schedulerDriverErr error
+		cpusParseErr       error
+		memoryParseErr     error
+	)
 
-	log.Printf("Initializing the Example Scheduler...")
+	if os.Getenv("CPUS_PER_TASK") == "" {
+		log.Fatal("CPUS_PER_TASK must be set")
+	}
+
+	if os.Getenv("EXECUTOR_COMMAND") == "" {
+		log.Fatal("EXECUTOR_COMMAND must be set")
+	}
+
+	if os.Getenv("EXECUTOR_ID") == "" {
+		log.Fatal("EXECUTOR_ID must be set")
+	}
+
+	if os.Getenv("FRAMEWORK_NAME") == "" {
+		log.Fatal("FRAMEWORK_NAME must be set")
+	}
+
+	if os.Getenv("GLADIUS_PORT") == "" {
+		log.Fatal("GLADIUS_PORT must be set")
+	}
+
+	if os.Getenv("MEMORY_PER_TASK") == "" {
+		log.Fatal("MEMORY_PER_TASK must be set")
+	}
+
+	if os.Getenv("REDIS_IDLE_TIMEOUT") == "" {
+		log.Fatal("REDIS_IDLE_TIMEOUT must be set")
+	}
+
+	if os.Getenv("REDIS_MAX_IDLE") == "" {
+		log.Fatal("REDIS_MAX_IDLE must be set")
+	}
+
+	quit = make(chan bool)
+	tasks = make(chan *Task)
+	cpusPerTask, cpusParseErr = strconv.ParseFloat(os.Getenv("CPUS_PER_TASK"), 64)
+
+	if os.Getenv("DOCKER_TLS") == "1" {
+		dockerCli, dockerCliErr = docker.NewTLSClient(os.Getenv("DOCKER_API"), os.Getenv("DOCKER_CERT"), os.Getenv("DOCKER_KEY"), os.Getenv("DOCKER_CA"))
+	} else {
+		dockerCli, dockerCliErr = docker.NewClient(os.Getenv("DOCKER_API"))
+	}
+
+	executorCommand = os.Getenv("EXECUTOR_COMMAND")
+	executorId = os.Getenv("EXECUTOR_ID")
+	frameworkName = os.Getenv("FRAMEWORK_NAME")
+	gladiusPort = os.Getenv("GLADIUS_PORT")
+	memoryPerTask, memoryParseErr = strconv.ParseFloat(os.Getenv("MEMORY_PER_TASK"), 64)
+	redisPool = NewRedisPool()
+	routes = NewRoutes()
+	schedulerDriver, schedulerDriverErr = NewSchedulerDriver()
 
 	if dockerCliErr != nil {
-		log.Fatal("Failed to connect with Redis: %v", dockerCliErr)
+		log.Fatal("Failed to initialize Docker: ", dockerCliErr)
 	}
 
 	if cpusParseErr != nil {
-		log.Fatal("Failed to parse CPUS per task: %v", cpusParseErr)
+		log.Fatal("Failed to parse CPUS_PER_TASK: %v", cpusParseErr)
 	}
 
-	if memParseErr != nil {
-		log.Fatal("Failed to parse mem per task: %v", memParseErr)
+	if memoryParseErr != nil {
+		log.Fatal("Failed to parse MEMORY_PER_TASK: %v", memoryParseErr)
 	}
 
-	if schedPortParseErr != nil {
-		log.Fatal("Failed to parse scheduler ip: %v", schedPortParseErr)
+	if schedulerDriverErr != nil {
+		log.Fatal("Failed to initialized scheduler driver: %s", schedulerDriverErr)
 	}
 
 	rand.Seed(time.Now().UTC().UnixNano())
+	http.HandleFunc("/builds", routes.Builds)
+	http.HandleFunc("/builds/", routes.Builds)
+
+	go func() {
+		err := http.ListenAndServe(fmt.Sprintf(":%s", gladiusPort), nil)
+
+		if err != nil {
+			log.Printf("Failed to serve the API: %s", err.Error())
+
+			quit <- true
+		}
+	}()
+
+	go func() {
+		stat, err := schedulerDriver.Run()
+
+		if err != nil {
+			log.Printf("Framework stopped with status %s and error: %s\n", stat.String(), err.Error())
+
+			quit <- true
+		}
+	}()
 }
 
 func main() {
-	// build command executor
-	exec := &mesos.ExecutorInfo{
-		ExecutorId: util.NewExecutorID("default"),
-		Command:    util.NewCommandInfo(execUri),
-	}
-
-	scheduler := NewScheduler(exec)
-
-	fwinfo := &mesos.FrameworkInfo{
-		User: proto.String(""),
-		Name: proto.String(FRAMEWORK_NAME),
-	}
-
-	schedConfig := sched.DriverConfig{
-		Scheduler:      scheduler,
-		Framework:      fwinfo,
-		Master:         master,
-		BindingAddress: schedIP,
-		BindingPort:    uint16(schedPort),
-	}
-	driver, err := sched.NewMesosSchedulerDriver(schedConfig)
-
-	if err != nil {
-		log.Printf("Unable to create a SchedulerDriver ", err.Error())
-	}
-
-	routes := &Routes{scheduler}
-	listenAt := fmt.Sprintf("%s:%s", os.Getenv("GLADIUS_TCP_ADDR"), os.Getenv("GLADIUS_HTTP_PORT"))
-
-	http.HandleFunc("/", routes.Home)
-	http.HandleFunc("/builds", routes.Builds)
-
-	go func() { log.Print(http.ListenAndServe(listenAt, nil)) }()
-
-	log.Printf("Listening at %s", listenAt)
-
-	if stat, err := driver.Run(); err != nil {
-		log.Printf("Framework stopped with status %s and error: %s\n", stat.String(), err.Error())
-	}
-}
-
-func newPool(server string) *redis.Pool {
-	return &redis.Pool{
-		MaxIdle:     3,
-		IdleTimeout: 240 * time.Second,
-		Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial("tcp", server)
-			if err != nil {
-				return nil, err
-			}
-			return c, err
-		},
-		TestOnBorrow: func(c redis.Conn, t time.Time) error {
-			_, err := c.Do("PING")
-			return err
-		},
-	}
+	<-quit
 }

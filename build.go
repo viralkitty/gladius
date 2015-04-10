@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"os"
@@ -12,35 +14,25 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fsouza/go-dockerclient"
-	"github.com/garyburd/redigo/redis"
+	docker "github.com/fsouza/go-dockerclient"
 	mesos "github.com/mesos/mesos-go/mesosproto"
-)
-
-const (
-	dockerRegistry = "docker.corp.adobe.com"
-	baseImage      = "docker.corp.adobe.com/typekit/bundler-typekit"
 )
 
 type Build struct {
 	Id               string                 `json:"id,omitempty"`
 	App              string                 `json:"app,omitempty"`
 	Branch           string                 `json:"branch,omitempty"`
-	Log              string                 `json:"log,omitempty"`
-	State            string                 `json:"state,omitempty"`
 	Container        *docker.Container      `json:"-"`
 	Image            *docker.Image          `json:"-"`
-	Scheduler        *Scheduler             `json:"-"`
 	TaskStatusesChan chan *mesos.TaskStatus `json:"-"`
 	Tasks            []*Task                `json:"tasks,omitempty"`
+	BaseImage        string                 `json:"baseImage,omitempty"`
+	Log              string                 `json:"log,omitempty"`
 }
 
-func NewBuild(scheduler *Scheduler) *Build {
-	// TODO: Dynamically generate list of tasks
-
+func NewBuild() *Build {
 	return &Build{
-		Scheduler: scheduler,
-		Id:        strconv.Itoa(rand.Int()),
+		Id: strconv.Itoa(rand.Int()),
 		Tasks: []*Task{
 			NewTask("rspec spec/api --no-color"),
 			NewTask("rspec spec/config --no-color"),
@@ -61,337 +53,499 @@ func NewBuild(scheduler *Scheduler) *Build {
 			NewTask("cucumber --profile=mails --no-color --format=progress features/mails"),
 		},
 		TaskStatusesChan: make(chan *mesos.TaskStatus),
+		BaseImage:        "docker.corp.adobe.com/typekit/bundler-typekit",
 	}
-}
-
-func AllBuilds() []Build {
-	var builds []Build
-
-	conn := pool.Get()
-	prefix := "pugio:builds:"
-	keys, err := redis.Strings(conn.Do("KEYS", fmt.Sprintf("%s*", prefix)))
-
-	defer conn.Close()
-
-	if err != nil {
-		log.Printf("Could not get keys: %s", err)
-		return nil
-	}
-
-	for _, key := range keys {
-		log.Printf("found key: %s", key)
-
-		var b *Build
-		var buildJsonBytes []byte
-
-		buildJsonBytes, err = redis.Bytes(conn.Do("GET", key))
-
-		if err != nil {
-			log.Printf("Could not get key: %s", key)
-			continue
-		}
-
-		err = json.Unmarshal(buildJsonBytes, &b)
-
-		if err != nil {
-			log.Printf("Could not unmarshal object: %v", err)
-			return nil
-		}
-
-		builds = append(builds, *b)
-	}
-
-	return builds
 }
 
 func (b *Build) Build() {
-	var err error
+	retryInterval := 10 * time.Second
+	buildIsTakingTooLong := time.After(30 * time.Minute)
 
-	b.Save()
-
-	err = b.pullImage()
-
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
-
-	err = b.createContainer()
-
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
-	}
-
+pullImageLoop:
 	for {
-		err = b.startContainer()
+		pullIsTakingTooLong := time.After(10 * time.Second)
+		pulledSuccessfully, errorWhilePulling := b.pullBaseImage()
 
-		if err != nil {
-			b.SaveAndHandleError(err)
-			continue
+		select {
+		case <-pulledSuccessfully:
+			break pullImageLoop
+		case <-errorWhilePulling:
+			time.Sleep(retryInterval)
+
+			continue pullImageLoop
+		case <-pullIsTakingTooLong:
+			b.log("Timed out pulling base image")
+
+			return
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
 		}
+	}
 
-		err = b.waitContainer()
+createContainerLoop:
+	for {
+		createIsTakingTooLong := time.After(10 * time.Second)
+		createdSuccessfully, errorWhileCreating := b.createContainer()
 
-		if err != nil {
-			b.SaveAndHandleError(err)
-			continue
+		select {
+		case <-createdSuccessfully:
+			break createContainerLoop
+		case err := <-errorWhileCreating:
+			b.log(err.Error())
+			time.Sleep(retryInterval)
+
+			continue createContainerLoop
+		case <-createIsTakingTooLong:
+			b.log("Timed out creating container")
+
+			return
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
 		}
-
-		break
 	}
 
-	err = b.commitContainer()
+startContainerLoop:
+	for {
+		startIsTakingTooLong := time.After(10 * time.Second)
+		startedSuccessfully, errorWhileStarting := b.startContainer()
 
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
+		select {
+		case <-startedSuccessfully:
+			break startContainerLoop
+		case err := <-errorWhileStarting:
+			b.log(err.Error())
+			time.Sleep(retryInterval)
+
+			continue startContainerLoop
+		case <-startIsTakingTooLong:
+			b.log("Timed out starting container")
+
+			return
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
+		}
 	}
 
-	err = b.removeContainer()
+waitContainerLoop:
+	for {
+		waitIsTakingTooLong := time.After(10 * time.Minute)
+		waitedSuccessfully, errorWhileWaiting := b.waitContainer()
 
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
+		select {
+		case <-waitedSuccessfully:
+			break waitContainerLoop
+		case <-errorWhileWaiting:
+			time.Sleep(retryInterval)
+
+			continue waitContainerLoop
+		case <-waitIsTakingTooLong:
+			b.log("Timed out waiting container")
+
+			return
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
+		}
 	}
 
-	err = b.pushImage()
+commitContainerLoop:
+	for {
+		commitIsTakingTooLong := time.After(1 * time.Minute)
+		commitedSuccessfully, errorWhileCommitting := b.commitContainer()
 
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
+		select {
+		case <-commitedSuccessfully:
+			break commitContainerLoop
+		case <-errorWhileCommitting:
+			time.Sleep(retryInterval)
+
+			continue commitContainerLoop
+		case <-commitIsTakingTooLong:
+			b.log("Timed out commiting container")
+
+			return
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
+		}
 	}
 
-	err = b.launchTasks()
+removeContainerLoop:
+	for {
+		removeIsTakingTooLong := time.After(1 * time.Minute)
+		removedSuccessfully, errorWhileRemoving := b.removeContainer()
 
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
+		select {
+		case <-removedSuccessfully:
+			break removeContainerLoop
+		case <-errorWhileRemoving:
+			time.Sleep(retryInterval)
+
+			continue removeContainerLoop
+		case <-removeIsTakingTooLong:
+			b.log("Timed out removing container")
+
+			break removeContainerLoop
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
+		}
 	}
 
-	err = b.removeImage()
+pushImageLoop:
+	for {
+		pushIsTakingTooLong := time.After(10 * time.Minute)
+		pushedSuccessfully, errorWhilePushing := b.pushImage()
 
-	if err != nil {
-		b.SaveAndHandleError(err)
-		return
+		select {
+		case <-pushedSuccessfully:
+			break pushImageLoop
+		case <-errorWhilePushing:
+			time.Sleep(retryInterval)
+
+			continue pushImageLoop
+		case <-pushIsTakingTooLong:
+			b.log("Timed out pushing image")
+
+			return
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
+		}
 	}
 
+	b.launchTasks()
+
+removeImageLoop:
+	for {
+		removeIsTakingTooLong := time.After(1 * time.Minute)
+		removedSuccessfully, errorWhileRemoving := b.removeImage()
+
+		select {
+		case <-removedSuccessfully:
+			break removeImageLoop
+		case <-errorWhileRemoving:
+			time.Sleep(retryInterval)
+
+			continue removeImageLoop
+		case <-removeIsTakingTooLong:
+			b.log("Timed out removing image")
+
+			return
+		case <-buildIsTakingTooLong:
+			b.log("Build timed out")
+
+			return
+		}
+	}
 }
 
-func (b *Build) createContainer() error {
-	log.Printf("Creating container")
-
-	createOpts := docker.CreateContainerOptions{
+func (b *Build) createContainer() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
+	opts := docker.CreateContainerOptions{
 		Config: &docker.Config{
 			Tty:          true,
 			AttachStdin:  true,
 			AttachStdout: true,
 			AttachStderr: true,
 			WorkingDir:   "/",
-			Image:        baseImage,
+			Image:        b.BaseImage,
 			Entrypoint:   []string{"sh"},
 			Cmd:          []string{"-c", b.CloneCmd()},
 		},
 	}
-	var err error
-	b.Container, err = dockerCli.CreateContainer(createOpts)
 
-	if err != nil {
-		log.Printf("Could not create container from image %s: %s", baseImage, err.Error())
-		return err
-	}
-
-	return nil
-}
-
-func (b *Build) startContainer() error {
-	log.Printf("Starting container")
-
-	sshKey := "/root/.ssh/id_rsa"
-
-	if os.Getenv("SSH_KEY") != "" {
-		sshKey = os.Getenv("SSH_KEY")
-	}
-
-	err := dockerCli.StartContainer(b.Container.ID, &docker.HostConfig{
-		Binds: []string{
-			fmt.Sprintf("%s:/root/.ssh/id_rsa", sshKey),
-		},
-	})
-
-	if err != nil {
-		log.Printf("Could not start container")
-		log.Printf(err.Error())
-		return err
-	}
-
-	return nil
-}
-
-func (b *Build) waitContainer() error {
-	log.Printf("Waiting for container")
-
-	status, err := dockerCli.WaitContainer(b.Container.ID)
-
-	if err != nil {
-		log.Printf("Could not wait for container")
-		log.Printf(err.Error())
-		return err
-	}
-
-	if status != 0 {
-		msg := "Clone or bundle failed"
-
-		log.Printf(msg)
-		return errors.New(msg)
-	}
-
-	return nil
-}
-
-func (b *Build) pullImage() error {
-	done := make(chan bool)
-	timeout := time.After(5 * time.Minute)
-	auth := docker.AuthConfiguration{}
-	opts := docker.PullImageOptions{
-		Repository: baseImage,
-		Registry:   dockerRegistry,
-	}
+	b.log("Creating container %v", opts)
 
 	go func() {
-		for {
-			err := dockerCli.PullImage(opts, auth)
+		defer close(doneChan)
+		defer close(errorChan)
 
-			if err != nil {
-				log.Printf("Failed to pull image %s: %s", baseImage, err.Error())
-				log.Printf("Attempting to repull image %s: %s", baseImage, err.Error())
+		var err error
 
-				continue
-			}
+		b.Container, err = dockerCli.CreateContainer(opts)
 
-			done <- true
-			break
+		if err != nil {
+			b.log("Could not create container %v: %v", opts, err)
+
+			errorChan <- err
+
+			return
 		}
+
+		b.log("Created container %v", b.Container.ID[:7])
+
+		doneChan <- true
 	}()
 
-	select {
-	case <-done:
-		return nil
-	case <-timeout:
-		return errors.New("Could not pull bundler typekit image")
-	}
+	return doneChan, errorChan
 }
 
-func (b *Build) commitContainer() error {
-	var err error
+func (b *Build) startContainer() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
 
-	log.Printf("Commiting container")
+	b.log("Starting container %s", b.Container.ID[:7])
 
-	commitOpts := docker.CommitContainerOptions{
+	go func() {
+		sshKey := "/root/.ssh/id_rsa"
+
+		if os.Getenv("SSH_KEY") != "" {
+			sshKey = os.Getenv("SSH_KEY")
+		}
+
+		hostConfig := &docker.HostConfig{
+			Binds: []string{
+				fmt.Sprintf("%s:/root/.ssh/id_rsa", sshKey),
+			},
+		}
+		err := dockerCli.StartContainer(b.Container.ID, hostConfig)
+
+		if err != nil {
+			b.log("Error starting container %s: %v", b.Container.ID[:7], err)
+
+			errorChan <- err
+
+			return
+		}
+
+		b.log("Started container %s", b.Container.ID[:7])
+
+		doneChan <- true
+	}()
+
+	return doneChan, errorChan
+}
+
+func (b *Build) waitContainer() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
+
+	b.log("Waiting for container %s", b.Container.ID[:7])
+
+	go func() {
+		defer close(doneChan)
+		defer close(errorChan)
+
+		status, err := dockerCli.WaitContainer(b.Container.ID)
+
+		if err != nil {
+			b.log("Error waiting for container: %v", err)
+
+			errorChan <- err
+
+			return
+		}
+
+		if status != 0 {
+			msg := fmt.Sprintf("Container %s exited with status 1: %v", b.Container.ID[:7], err)
+			err := errors.New(msg)
+
+			b.log(msg)
+
+			errorChan <- err
+
+			return
+		}
+
+		b.log("Waited for container %s", b.Container.ID[:7])
+
+		doneChan <- true
+	}()
+
+	return doneChan, errorChan
+}
+
+func (b *Build) pullImage(opts docker.PullImageOptions) (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
+
+	b.log("Pulling image %v", opts)
+
+	go func() {
+		defer close(doneChan)
+		defer close(errorChan)
+
+		err := dockerCli.PullImage(opts, docker.AuthConfiguration{})
+
+		if err != nil {
+			b.log("Error pulling image %v: %v", opts, err)
+
+			errorChan <- err
+
+			return
+		}
+
+		b.log("Pulled image %s", opts)
+
+		doneChan <- true
+	}()
+
+	return doneChan, errorChan
+}
+
+func (b *Build) pullBaseImage() (<-chan bool, <-chan error) {
+	return b.pullImage(docker.PullImageOptions{
+		Repository: b.BaseImage,
+	})
+}
+
+func (b *Build) commitContainer() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
+	opts := docker.CommitContainerOptions{
 		Container:  b.Container.ID,
-		Repository: b.FullImgName(),
+		Repository: b.ImageName(),
 		Tag:        b.Id,
 	}
 
-	b.Image, err = dockerCli.CommitContainer(commitOpts)
+	b.log("Commiting container %v", opts)
 
-	if err != nil {
-		log.Printf("Could not commit container")
-		log.Printf(err.Error())
-		return err
-	}
+	go func() {
+		defer close(doneChan)
+		defer close(errorChan)
 
-	return nil
+		img, err := dockerCli.CommitContainer(opts)
+
+		if err != nil {
+			b.log("Could not commit container %v: %v", opts, err)
+
+			errorChan <- err
+
+			return
+		}
+
+		b.Image = img
+
+		b.log("Commited container: %v", opts)
+
+		doneChan <- true
+	}()
+
+	return doneChan, errorChan
 }
 
-func (b *Build) removeContainer() error {
-	log.Printf("Removing container")
-
-	removeOpts := docker.RemoveContainerOptions{
+func (b *Build) removeContainer() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
+	opts := docker.RemoveContainerOptions{
 		ID:    b.Container.ID,
 		Force: true,
 	}
 
-	err := dockerCli.RemoveContainer(removeOpts)
-
-	if err != nil {
-		log.Printf("Could not remove the container")
-		log.Printf(err.Error())
-		return err
-	}
-
-	return nil
-}
-
-func (b *Build) pushImage() error {
-	var buf bytes.Buffer
-
-	successMsg := "Image successfully pushed"
-	errorMsg := "Timed out pushing image"
-	done := make(chan bool)
-	timeout := time.After(5 * time.Minute)
-	auth := docker.AuthConfiguration{}
-	opts := docker.PushImageOptions{
-		Name:         b.FullImgName(),
-		OutputStream: &buf,
-		Tag:          b.Id,
-	}
+	b.log("Removing container %v", opts)
 
 	go func() {
-		for {
-			if dockerCli.PushImage(opts, auth) != nil {
-				continue
-			}
+		defer close(doneChan)
+		defer close(errorChan)
 
-			if strings.Contains(buf.String(), successMsg) != true {
-				continue
-			}
+		err := dockerCli.RemoveContainer(opts)
 
-			done <- true
-			break
+		if err != nil {
+			b.log("Error removing container %v: %v", opts, err)
+
+			errorChan <- err
+
+			return
 		}
+
+		b.log("Removed container %v", opts)
+
+		doneChan <- true
 	}()
 
-	select {
-	case <-done:
-		return nil
-	case <-timeout:
-		return errors.New(errorMsg)
-	}
+	return doneChan, errorChan
 }
 
-func (b *Build) launchTasks() error {
+func (b *Build) pushImage() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
+
+	b.log("Pushing image %s", b.Image.ID)
+
+	go func() {
+		defer close(doneChan)
+		defer close(errorChan)
+
+		var buf bytes.Buffer
+
+		successMsg := "Image successfully pushed"
+		auth := docker.AuthConfiguration{}
+		opts := docker.PushImageOptions{
+			Name:         b.ImageName(),
+			OutputStream: &buf,
+			Tag:          b.Id,
+		}
+		err := dockerCli.PushImage(opts, auth)
+
+		if err != nil {
+			b.log("Error pushing image %s: %v", b.Image.ID, err)
+
+			errorChan <- err
+
+			return
+		}
+
+		if strings.Contains(buf.String(), successMsg) != true {
+			b.log("Error pushing image %s: %s", b.Image.ID, buf.String())
+
+			errorChan <- err
+
+			return
+		}
+
+		b.log("Pushed image %s", b.Image.ID)
+
+		doneChan <- true
+	}()
+
+	return doneChan, errorChan
+}
+
+func (b *Build) launchTasks() {
 	go b.taskStatusLoop()
 
 	for _, task := range b.Tasks {
 		go func(t *Task) {
-			log.Printf("throwing task into chan: %+v", t)
+			fmt.Sprintf("throwing task into chan: %+v", t)
 			t.Build = b
 			t.BuildId = b.Id
 			tasks <- t
 		}(task)
 	}
-
-	return nil
 }
 
 func (b *Build) Save() error {
-	log.Printf("Persisting in Redis")
-
+	key := b.RedisKey()
+	conn := redisPool.Get()
 	buildJson, err := json.Marshal(b)
 
+	defer conn.Close()
+
+	b.log("Saving")
+
 	if err != nil {
-		log.Printf("json error: %+v", err)
+		b.log("Failed to marshal as JSON: %s", err)
+
 		return err
 	}
 
-	conn := pool.Get()
-	defer conn.Close()
-
-	_, err = conn.Do("SET", b.RedisKey(), buildJson)
+	_, err = conn.Do("SET", key, buildJson)
 
 	if err != nil {
-		log.Printf("problem setting key: %v", err)
+		b.log("Failed to set key %s: %v", key, err.Error())
+
 		return err
 	}
 
@@ -399,13 +553,17 @@ func (b *Build) Save() error {
 }
 
 func (b *Build) taskStatusLoop() {
+	b.log("Entering task status loop")
+
 	for finishedTasks := 0; finishedTasks < len(b.Tasks); {
+		b.log("Began iteration %d in task status loop", finishedTasks)
+
 		select {
 		case taskStatus := <-b.TaskStatusesChan:
 			state := taskStatus.GetState()
 			taskId := taskStatus.TaskId.GetValue()
 
-			log.Printf("Task %s is in the %s state", taskId, state)
+			fmt.Sprintf("Task %s is in the %s state", taskId, state)
 
 			// Loops through the build tasks to find the one
 			// matching the received task status, so it can update
@@ -434,7 +592,7 @@ func (b *Build) taskStatusLoop() {
 }
 
 func (b *Build) SaveAndHandleError(err error) {
-	log.Print(err)
+	b.log(err.Error())
 	b.Save()
 }
 
@@ -442,33 +600,102 @@ func (b *Build) RedisKey() string {
 	return fmt.Sprintf("pugio:builds:%s", b.Id)
 }
 
+func (b *Build) RedisLogKey() string {
+	return fmt.Sprintf("pugio:builds:%s:log", b.Id)
+}
+
 func (b *Build) GitRepo() string {
-	return fmt.Sprintf("git@git.corp.adobe.com:%s.git", b.ImgName())
+	return fmt.Sprintf("git@git.corp.adobe.com:typekit/%s.git", b.App)
 }
 
-func (b *Build) ImgName() string {
-	return fmt.Sprintf("typekit/%s", b.App)
-}
-
-func (b *Build) FullImgName() string {
-	return fmt.Sprintf("%s/%s", dockerRegistry, b.ImgName())
+func (b *Build) ImageName() string {
+	return fmt.Sprintf("docker.corp.adobe.com/typekit/%s", b.App)
 }
 
 func (b *Build) CloneCmd() string {
 	return fmt.Sprintf("(ssh -o StrictHostKeyChecking=no git@git.corp.adobe.com || true) && rm -rf %s && git clone --depth 1 --branch %s %s && cd %s && bundle install --jobs 4 --deployment", b.App, b.Branch, b.GitRepo(), b.App)
 }
 
-func (b *Build) removeImage() error {
-	log.Printf("Attempting to remove image: %s", b.Image.ID)
+func (b *Build) removeImage() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
 
-	err := dockerCli.RemoveImage(b.Image.ID)
+	b.log("Removing image %s", b.Image.ID[:7])
+
+	go func() {
+		defer close(doneChan)
+		defer close(errorChan)
+
+		err := dockerCli.RemoveImage(b.Image.ID)
+
+		if err != nil {
+			b.log("Couldn't remove image '%s': %s", b.Image.ID[:7], err)
+
+			errorChan <- err
+
+			return
+		}
+
+		b.log("Removed image %s", b.Image.ID[:7])
+
+		doneChan <- true
+	}()
+
+	return doneChan, errorChan
+}
+
+func (b *Build) log(msg string, args ...interface{}) {
+	msg = fmt.Sprintf(msg, args...)
+
+	conn := redisPool.Get()
+
+	defer conn.Close()
+
+	_, err := conn.Do("RPUSH", b.RedisLogKey(), fmt.Sprintf("[%s] %s", time.Now().String(), msg))
 
 	if err != nil {
-		log.Printf("Couldn't remove image '%s': %s", b.Image.ID, err)
-		return err
+		log.Printf(err.Error())
 	}
 
-	log.Printf("Removed image: %s", b.Image.ID)
+	log.Printf("[Build %s] %s", b.Id, msg)
+}
 
-	return nil
+func (b *Build) containerLogs() (<-chan bool, <-chan error) {
+	doneChan := make(chan bool)
+	errorChan := make(chan error)
+
+	go func() {
+		reader, writer := io.Pipe()
+		opts := docker.AttachToContainerOptions{
+			Container:    b.Container.ID,
+			OutputStream: writer,
+			ErrorStream:  writer,
+			Stdout:       true,
+			Stderr:       true,
+			Stream:       true,
+			Logs:         true,
+		}
+
+		go func() {
+			err := dockerCli.AttachToContainer(opts)
+
+			if err != nil {
+				errorChan <- err
+			}
+		}()
+
+		go func(r io.Reader) {
+			scanner := bufio.NewScanner(r)
+
+			for scanner.Scan() {
+				log.Printf("%s\n", scanner.Text())
+			}
+
+			if err := scanner.Err(); err != nil {
+				log.Printf("There was an error with the scanner in attached container: %v", err)
+			}
+		}(reader)
+	}()
+
+	return doneChan, errorChan
 }
