@@ -41,6 +41,7 @@ func NewBuild() *Build {
 			NewTask("rspec spec/integration --no-color"),
 			NewTask("rspec spec/lib --no-color"),
 			NewTask("rspec spec/mails --no-color"),
+			NewTask("rspec spec/models --no-color"),
 			NewTask("rspec spec/racks --no-color"),
 			NewTask("rspec spec/requests --no-color"),
 			NewTask("rspec spec/routing --no-color"),
